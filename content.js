@@ -1,3 +1,7 @@
+(function () {
+if (window.__clayExtensionBridgeLoaded) return;
+window.__clayExtensionBridgeLoaded = true;
+
 // Clay Chrome Extension - Content Script
 // Injected into Clay tabs. Bridges background.js <-> Clay page.
 // Uses a long-lived port connection for reliable bidirectional messaging.
@@ -83,3 +87,4 @@ window.addEventListener("message", function (event) {
     }
   }
 });
+})();

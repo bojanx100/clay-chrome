@@ -74,11 +74,15 @@ test("pair injects the target and relays target events to the owning control", f
     reconnectCredential: "reconnect-1",
     projectLabel: "clay",
     sessionLabel: "Framer workflow",
+    projectSlug: "clay",
+    sessionId: "session-7",
   }, function (value) { result = value; }, { clayTabId: 7 });
   assert.deepStrictEqual(result, { ok: true });
   assert.strictEqual(state.targetMessages[0].message.type, "live_ui_init");
   assert.strictEqual(state.targetMessages[0].message.projectLabel, "clay");
   assert.strictEqual(state.targetMessages[0].message.sessionLabel, "Framer workflow");
+  assert.strictEqual(state.runtime.getPairings()[0].projectSlug, "clay");
+  assert.strictEqual(state.runtime.getPairings()[0].sessionId, "session-7");
 
   var response = null;
   var handled = state.runtime.handleTargetMessage({
@@ -100,6 +104,31 @@ test("pair injects the target and relays target events to the owning control", f
   });
   assert.strictEqual(state.controlMessages[1].type, "clay_live_ui_restore");
   assert.strictEqual(state.controlMessages[1].reconnectCredential, "reconnect-1");
+});
+
+test("extension exit closes the overlay and notifies its pinned control", function () {
+  var state = harness();
+  var result = null;
+  state.runtime.pair({
+    protocolVersion: 1,
+    pairingId: "pair-1",
+    targetTabId: 42,
+    allowedOrigin: "http://localhost:4242",
+    nonce: "nonce-1",
+  }, function (value) { result = value; }, { clayTabId: 7 });
+  assert.deepStrictEqual(result, { ok: true });
+  var exitResult = null;
+  state.runtime.exitPairing("pair-1", function (value) { exitResult = value; });
+  assert.deepStrictEqual(exitResult, { ok: true });
+  assert.strictEqual(state.runtime.getPairings().length, 0);
+  assert.ok(state.controlMessages.some(function (message) {
+    return message.envelope &&
+      message.envelope.event === "target.closed" &&
+      message.envelope.payload.reason === "extension_exit";
+  }));
+  assert.ok(state.targetMessages.some(function (entry) {
+    return entry.message.type === "live_ui_destroy";
+  }));
 });
 
 test("a new pairing replaces stale state for the same target tab", function () {

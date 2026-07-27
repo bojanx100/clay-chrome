@@ -149,7 +149,6 @@
       });
     });
   }
-
   function originOf(url) {
     try {
       var parsed = new URL(url);
@@ -159,14 +158,12 @@
       return null;
     }
   }
-
   function createRuntime(chromeApi, clayPortForTab, options) {
     options = options || {};
     var captureScreenshot = options.captureScreenshot || function (pairing, payload, callback) {
       captureMaskedScreenshot(chromeApi, pairing, payload, callback);
     };
     var pairings = {};
-
     function save() {
       var stored = {};
       var ids = Object.keys(pairings);
@@ -182,6 +179,8 @@
           reconnectCredential: pairing.reconnectCredential || null,
           projectLabel: pairing.projectLabel || null,
           sessionLabel: pairing.sessionLabel || null,
+          projectSlug: pairing.projectSlug || null,
+          sessionId: pairing.sessionId || null,
         };
       }
       var value = {};
@@ -279,7 +278,8 @@
             args.projectLabel.slice(0, 160) : "Clay project",
           sessionLabel: typeof args.sessionLabel === "string" ?
             args.sessionLabel.slice(0, 160) : "New chat",
-        };
+          projectSlug: typeof args.projectSlug === "string" ? args.projectSlug.slice(0, 160) : null,
+          sessionId: args.sessionId === undefined ? null : args.sessionId };
         pairings[pairing.pairingId] = pairing;
         save();
         injectTarget(pairing, function (result) {
@@ -304,6 +304,29 @@
       delete pairings[pairing.pairingId];
       save();
       callback({ ok: true });
+    }
+
+    function exitPairing(pairingId, callback) {
+      var pairing = pairings[pairingId];
+      if (!pairing) return callback({ ok: true, alreadyClosed: true });
+      sendToControl(pairing, lifecycleEnvelope(pairing, "target.closed", "extension_exit"));
+      sendToTarget(pairing, { type: "live_ui_destroy",
+        pairingId: pairing.pairingId }, function () {});
+      delete pairings[pairing.pairingId];
+      save();
+      callback({ ok: true });
+    }
+
+    function getPairings() {
+      var ids = Object.keys(pairings);
+      return ids.map(function (id) {
+        var pairing = pairings[id];
+        return { pairingId: pairing.pairingId, targetTabId: pairing.targetTabId, allowedOrigin: pairing.allowedOrigin,
+          projectSlug: pairing.projectSlug || null,
+          projectLabel: pairing.projectLabel || "Clay project",
+          sessionId: pairing.sessionId || null,
+          sessionLabel: pairing.sessionLabel || "New chat" };
+      });
     }
 
     function handleTargetMessage(message, sender, sendResponse) {
@@ -457,6 +480,8 @@
     return {
       pair: pair,
       unpair: unpair,
+      exitPairing: exitPairing,
+      getPairings: getPairings,
       handleTargetMessage: handleTargetMessage,
       handleServerEnvelope: handleServerEnvelope,
       handleTabLoading: handleTabLoading,

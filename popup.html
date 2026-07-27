@@ -3,11 +3,42 @@
 <head>
   <meta charset="utf-8">
   <link rel="stylesheet" href="popup.css">
+  <link rel="stylesheet" href="live-ui-popup.css">
 </head>
 <body>
   <div class="header">
     <img src="icons/icon-48.png" alt="Clay" class="logo">
     <h1>Clay</h1>
+  </div>
+
+  <div class="section live-ui-card">
+    <div class="section-title">
+      Live UI
+      <span id="liveUiBadge" class="live-ui-badge">Checking</span>
+    </div>
+    <div id="liveUiTarget" class="live-ui-target">
+      <div class="live-ui-target-icon">↗</div>
+      <div class="live-ui-target-copy">
+        <div id="liveUiTargetTitle" class="live-ui-target-title">Current tab</div>
+        <div id="liveUiTargetUrl" class="live-ui-target-url">Checking tab…</div>
+      </div>
+    </div>
+
+    <div id="liveUiActive" class="live-ui-active hidden">
+      <div class="live-ui-active-kicker">Pinned to</div>
+      <div id="liveUiActiveSession" class="live-ui-active-session"></div>
+      <div id="liveUiActiveProject" class="live-ui-active-project"></div>
+      <button id="liveUiExitBtn" class="live-ui-exit">Exit Live UI</button>
+    </div>
+
+    <div id="liveUiSetup">
+      <label class="live-ui-label" for="liveUiSessionSelect">Send changes to</label>
+      <select id="liveUiSessionSelect" class="live-ui-select"></select>
+      <button id="liveUiStartBtn" class="live-ui-start">Start Live UI on this tab</button>
+      <button id="liveUiConnectBtn" class="live-ui-connect hidden">Connect this tab as Clay</button>
+      <div id="liveUiHint" class="live-ui-hint"></div>
+    </div>
+    <div id="liveUiStatus" class="live-ui-status" aria-live="polite"></div>
   </div>
 
   <div class="section">
@@ -52,6 +83,7 @@
     </div>
   </div>
 
+  <script src="live-ui-popup.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

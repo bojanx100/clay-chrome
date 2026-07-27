@@ -1,0 +1,164 @@
+.live-ui-card {
+  padding: 13px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  border-radius: 11px;
+  background:
+    radial-gradient(circle at 100% 0, color-mix(in srgb, var(--accent) 14%, transparent), transparent 46%),
+    var(--bg-card);
+}
+
+.live-ui-badge {
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  font-size: 9px;
+  letter-spacing: .04em;
+  text-transform: none;
+}
+
+.live-ui-badge.connected {
+  border-color: color-mix(in srgb, var(--green) 46%, var(--border));
+  color: var(--green);
+}
+
+.live-ui-badge.active {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+}
+
+.live-ui-target {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 12px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--border);
+}
+
+.live-ui-target-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg));
+  color: var(--accent-hover);
+  font-size: 15px;
+}
+
+.live-ui-target-copy { min-width: 0; }
+
+.live-ui-target-title {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-ui-target-url {
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--text-dim);
+  font: 10px/1.3 "SF Mono", Monaco, "Cascadia Code", monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-ui-label,
+.live-ui-active-kicker {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.live-ui-select {
+  width: 100%;
+  height: 36px;
+  margin-bottom: 8px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.live-ui-select:focus { border-color: var(--accent); }
+.live-ui-select:disabled { opacity: .55; }
+
+.live-ui-start,
+.live-ui-connect,
+.live-ui-exit {
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.live-ui-start {
+  background: var(--accent);
+  color: #fff;
+}
+
+.live-ui-start:hover { background: var(--accent-hover); }
+.live-ui-start:disabled { cursor: default; opacity: .45; }
+
+.live-ui-connect {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+}
+
+.live-ui-connect:hover { background: var(--bg-hover); }
+
+.live-ui-exit {
+  margin-top: 12px;
+  border: 1px solid color-mix(in srgb, var(--red) 42%, var(--border));
+  background: transparent;
+  color: var(--red);
+}
+
+.live-ui-active {
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--green) 36%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--green) 7%, transparent);
+}
+
+.live-ui-active-session {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.live-ui-active-project {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.live-ui-hint,
+.live-ui-status {
+  margin-top: 8px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.live-ui-status:empty { display: none; }
+.live-ui-status.error { color: var(--red); }
+.live-ui-status.success { color: var(--green); }

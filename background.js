@@ -1,7 +1,7 @@
 // Clay Chrome Extension - Background Service Worker
 // Tracks open tabs and relays commands between Clay page and browser
 // Bridges local MCP servers to Clay via Native Messaging
-importScripts("live-ui-background.js");
+importScripts("live-ui-background.js", "live-ui-picker-background.js");
 
 // --- State ---
 var clayTabIds = new Set();
@@ -149,6 +149,12 @@ var clayPorts = {}; // tabId -> port
 var liveUiRuntime = ClayLiveUiBackground.createRuntime(chrome, function (tabId) {
   return clayPorts[tabId] || null;
 });
+var liveUiPicker = ClayLiveUiPickerBackground.createPicker(
+  chrome,
+  liveUiRuntime,
+  function (tabId) { return clayPorts[tabId] || null; },
+  function () { return Object.keys(clayPorts); }
+);
 
 chrome.runtime.onConnect.addListener(function (port) {
   if (port.name !== "clay-tab") return;
@@ -161,6 +167,7 @@ chrome.runtime.onConnect.addListener(function (port) {
   broadcastTabList();
   setTimeout(function () {
     liveUiRuntime.handleControlConnected(tabId, port);
+    liveUiPicker.handlePortConnected(tabId);
   }, 250);
   // Auto-connect native host when a Clay tab connects (no popup needed)
   if (!mcpNativePort) mcpConnectNativeHost();
@@ -168,6 +175,7 @@ chrome.runtime.onConnect.addListener(function (port) {
   setTimeout(broadcastMcpServers, mcpNativePort ? 100 : 500);
 
   port.onMessage.addListener(function (msg) {
+    if (liveUiPicker.handlePortMessage(tabId, msg)) return;
     // Command from Clay page (relayed by content script)
     if (msg.type === "clay_ext_command") {
       var handler = COMMANDS[msg.command];
@@ -204,6 +212,7 @@ chrome.runtime.onConnect.addListener(function (port) {
   port.onDisconnect.addListener(function () {
     void chrome.runtime.lastError;
     liveUiRuntime.handleControlDisconnected(tabId);
+    liveUiPicker.handlePortDisconnected(tabId);
     delete clayPorts[tabId];
     clayTabIds.delete(tabId);
   });
@@ -214,6 +223,7 @@ chrome.runtime.onConnect.addListener(function (port) {
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   if (liveUiRuntime.handleTargetMessage(msg, sender, sendResponse)) return true;
   if (!sender.tab) {
+    if (liveUiPicker.handlePopupMessage(msg, sendResponse)) return true;
     if (msg.type === "mcp_check_host") {
       mcpCheckHost(sendResponse);
       return true;
