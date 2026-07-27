@@ -53,12 +53,24 @@ test("origin validation keeps pairing on the authorized origin", function () {
 test("target overlay exposes identity, capture, clear, and bounded modules", function () {
   var root = path.join(__dirname, "..");
   var target = fs.readFileSync(path.join(root, "live-ui-target.js"), "utf8");
+  var targetContext = fs.readFileSync(
+    path.join(root, "live-ui-target-context.js"), "utf8");
+  var targetUi = fs.readFileSync(path.join(root, "live-ui-target-ui.js"), "utf8");
   var background = fs.readFileSync(path.join(root, "live-ui-background.js"), "utf8");
-  assert.match(target, /Sending to/);
-  assert.match(target, /Add screenshot/);
+  assert.match(targetUi, /Sending to/);
+  assert.match(targetUi, /Add screenshot/);
   assert.match(target, /selection\.clear/);
-  assert.match(target, /button\[hidden\]/);
+  assert.match(targetUi, /button\[hidden\]/);
+  assert.match(target, /Selected:/);
+  assert.match(targetUi, /Drag Live UI/);
+  assert.match(targetUi, /setPointerCapture/);
+  assert.match(target, /composedPath/);
+  assert.match(targetUi, /stopImmediatePropagation/);
+  assert.match(background, /"live-ui-target-context\.js"/);
+  assert.match(background, /"live-ui-target-ui\.js"/);
   assert.ok(target.split("\n").length < 500);
+  assert.ok(targetContext.split("\n").length < 500);
+  assert.ok(targetUi.split("\n").length < 500);
   assert.ok(background.split("\n").length < 500);
 });
 

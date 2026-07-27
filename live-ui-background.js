@@ -1,7 +1,6 @@
 (function (root) {
   var STORAGE_KEY = "clayLiveUiPairingsV1";
   var MAX_MASKS = 256;
-
   function capturePacket(payload) {
     var viewport = payload && payload.viewport;
     if (!viewport) return null;
@@ -35,7 +34,6 @@
       masks: masks,
     };
   }
-
   function base64Bytes(data) {
     var binary = atob(data);
     var bytes = new Uint8Array(binary.length);
@@ -215,7 +213,8 @@
     function injectTarget(pairing, callback) {
       chromeApi.scripting.executeScript({
         target: { tabId: pairing.targetTabId },
-        files: ["live-ui-target.js"],
+        files: ["live-ui-target-context.js", "live-ui-target-ui.js",
+          "live-ui-target.js"],
       }, function () {
         var error = chromeApi.runtime.lastError;
         if (error) return callback({ ok: false, error: error.message });
@@ -368,7 +367,9 @@
         event: message.event,
         payload: message.payload || null,
       });
-      sendResponse({ ok: forwarded });
+      sendResponse(forwarded ? { ok: true } : {
+        ok: false, error: "The connected Clay tab is unavailable",
+      });
       return true;
     }
 
