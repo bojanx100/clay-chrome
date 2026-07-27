@@ -36,6 +36,7 @@ function harness(options) {
     };
   }, {
     captureScreenshot: options.captureScreenshot,
+    captureEvidence: options.captureEvidence,
   });
   return {
     runtime: runtime,
@@ -50,28 +51,32 @@ test("origin validation keeps pairing on the authorized origin", function () {
   assert.strictEqual(moduleApi.originOf("javascript:alert(1)"), null);
 });
 
-test("target overlay exposes identity, capture, clear, and bounded modules", function () {
+test("target overlay exposes a compact report queue and isolated picker", function () {
   var root = path.join(__dirname, "..");
   var target = fs.readFileSync(path.join(root, "live-ui-target.js"), "utf8");
   var targetContext = fs.readFileSync(
     path.join(root, "live-ui-target-context.js"), "utf8");
   var targetUi = fs.readFileSync(path.join(root, "live-ui-target-ui.js"), "utf8");
   var background = fs.readFileSync(path.join(root, "live-ui-background.js"), "utf8");
-  assert.match(targetUi, /Sending to/);
-  assert.match(targetUi, /Add screenshot/);
+  var evidence = fs.readFileSync(path.join(root, "live-ui-evidence.js"), "utf8");
+  assert.match(targetUi, /Coordinator/);
+  assert.match(targetUi, /attached automatically/);
+  assert.match(targetUi, /selection-shield/);
+  assert.match(targetUi, /aggregate-dot/);
   assert.match(target, /selection\.clear/);
-  assert.match(targetUi, /button\[hidden\]/);
-  assert.match(target, /Selected:/);
+  assert.match(target, /report\.submit/);
+  assert.match(target, /evidence\.capture/);
+  assert.match(target, /handleShieldClick/);
   assert.match(targetUi, /Drag Live UI/);
   assert.match(targetUi, /setPointerCapture/);
-  assert.match(target, /composedPath/);
   assert.match(targetUi, /stopImmediatePropagation/);
-  assert.match(background, /"live-ui-target-context\.js"/);
-  assert.match(background, /"live-ui-target-ui\.js"/);
+  assert.match(background, /captureEvidence/);
+  assert.match(evidence, /captureDiagnostics/);
   assert.ok(target.split("\n").length < 500);
   assert.ok(targetContext.split("\n").length < 500);
   assert.ok(targetUi.split("\n").length < 500);
   assert.ok(background.split("\n").length < 500);
+  assert.ok(evidence.split("\n").length < 500);
 });
 
 test("pair injects the target and relays target events to the owning control", function () {
@@ -270,5 +275,49 @@ test("screenshot capture stays inside the extension until the masked result is r
   assert.strictEqual(captureArgs.payload.masks.length, 1);
   assert.strictEqual(response.ok, true);
   assert.strictEqual(response.screenshot.data, "bWFza2VkLXBuZw==");
+  assert.strictEqual(state.controlMessages.length, 0);
+});
+
+test("automatic report evidence combines a masked screenshot and diagnostics", function () {
+  var captureArgs = null;
+  var state = harness({
+    captureEvidence: function (pairing, payload, callback) {
+      captureArgs = { pairing: pairing, payload: payload };
+      callback({
+        ok: true,
+        mediaType: "image/png",
+        data: "bWFza2VkLXBuZw==",
+        diagnostics: {
+          console: [{ level: "error", text: "Boom" }],
+          network: [{ method: "GET", url: "/api/items", status: 500 }],
+        },
+      });
+    },
+  });
+  var result = null;
+  state.runtime.pair({
+    protocolVersion: 1,
+    pairingId: "pair-1",
+    targetTabId: 42,
+    allowedOrigin: "http://localhost:4242",
+    nonce: "nonce-1",
+  }, function (value) { result = value; }, { clayTabId: 7 });
+  assert.deepStrictEqual(result, { ok: true });
+  var response = null;
+  state.runtime.handleTargetMessage({
+    type: "live_ui_target_event",
+    pairingId: "pair-1",
+    event: "evidence.capture",
+    payload: {
+      documentGeneration: "document-1",
+      viewport: { width: 1200, height: 800, scrollX: 0, scrollY: 0 },
+      masks: [],
+    },
+  }, {
+    tab: { id: 42, url: "http://localhost:4242/pricing" },
+  }, function (value) { response = value; });
+  assert.strictEqual(captureArgs.pairing.pairingId, "pair-1");
+  assert.strictEqual(response.screenshot.data, "bWFza2VkLXBuZw==");
+  assert.strictEqual(response.diagnostics.console[0].text, "Boom");
   assert.strictEqual(state.controlMessages.length, 0);
 });

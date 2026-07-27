@@ -52,6 +52,8 @@ clay-chrome/
   background.js     Service worker: tab tracking, command dispatch
   content.js        Injected into Clay tabs: message bridge
   inject.js         Injected into target tabs: console/network capture
+  live-ui-evidence.js  Masked screenshot and bounded diagnostics capture
+  live-ui-target*.js   Isolated picker and compact multi-report tray
   icons/            Extension icons (16, 48, 128)
 ```
 
@@ -111,7 +113,11 @@ Clay uses this extension for three things:
 
 1. **Context sources**: Users select browser tabs as context sources. Each message automatically includes console logs, network requests, page text, and a screenshot from the selected tabs.
 2. **MCP tools**: Clay's Browser MCP server exposes 17 `browser_*` tools to Claude, which call extension commands through an HTTP bridge.
-3. **Live UI**: A Clay session can pair with its exact loopback development tab, inject a closed-shadow-root element picker and chat drawer, retain a sanitized selection across reloads, and relay the pinned session's response into the page.
+3. **Live UI**: A Clay session can pair with an authorized development tab,
+   inject an event-isolated element picker and compact report tray, and submit
+   multiple issues to a Clay coordinator. Each report automatically includes a
+   masked screenshot plus bounded console/network context. The page receives
+   only working, needs-input, failed, and verified-complete status.
 
 Live UI pairings are stored in `chrome.storage.session`, bound to one Clay
 control tab and one target tab, and restored only through a server-issued

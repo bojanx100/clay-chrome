@@ -1,7 +1,8 @@
 // Clay Chrome Extension - Background Service Worker
 // Tracks open tabs and relays commands between Clay page and browser
 // Bridges local MCP servers to Clay via Native Messaging
-importScripts("live-ui-background.js", "live-ui-picker-background.js");
+importScripts("live-ui-evidence.js", "live-ui-background.js",
+  "live-ui-picker-background.js");
 
 // --- State ---
 var clayTabIds = new Set();

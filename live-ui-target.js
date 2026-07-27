@@ -1,47 +1,26 @@
 (function () {
   if (globalThis.__clayLiveUiTargetInstalled) return;
   globalThis.__clayLiveUiTargetInstalled = true;
+
   var state = {
     pairingId: null,
     host: null,
-    shell: null,
-    label: null,
-    selectedMark: null,
-    selectionSummary: null,
-    selectionName: null,
-    selectionTag: null,
-    emptyHint: null,
-    clearButton: null,
-    selectButton: null,
-    chatButton: null,
-    captureButton: null,
-    attachment: null,
-    connection: null,
-    drawer: null,
-    transcript: null,
-    input: null,
-    sendButton: null,
-    selecting: false,
-    hovered: null,
-    selected: null,
-    outline: null,
     documentGeneration: String(Date.now()),
     sequence: 0,
-    pendingSelection: null,
-    activeOperationId: null,
-    assistantBubble: null,
-    screenshot: null,
+    selecting: false,
+    selected: null,
+    hovered: null,
     connected: false,
+    submitting: false,
+    pendingSubmission: null,
+    pendingSelection: null,
     connectionTimer: null,
-    clampPosition: null,
+    reports: {},
     projectLabel: "Clay project",
     sessionLabel: "New chat",
   };
-  function nextMessageId() {
-    return "selection-" + Date.now() + "-" + (++state.sequence);
-  }
-  function nextChatId() {
-    return "chat-" + Date.now() + "-" + (++state.sequence);
+  function nextMessageId(prefix) {
+    return prefix + "-" + Date.now() + "-" + (++state.sequence);
   }
   function sendEvent(event, payload, clientMessageId, callback) {
     if (!state.pairingId) return;
@@ -61,6 +40,92 @@
     return globalThis.ClayLiveUiTargetContext.selectionPacket(
       element, state.documentGeneration);
   }
+  function positionOutline(element, selected) {
+    if (!state.outline || !element) return;
+    var rect = element.getBoundingClientRect();
+    state.outline.style.display = "block";
+    state.outline.style.transform = "translate(" + rect.x + "px," + rect.y + "px)";
+    state.outline.style.width = rect.width + "px";
+    state.outline.style.height = rect.height + "px";
+    state.outline.style.borderColor = selected ? "#d29a52" : "#4dae84";
+  }
+  function setSelectionSummary(packet) {
+    var selected = !!state.selected;
+    if (state.selectionSummary) state.selectionSummary.hidden = !selected;
+    if (state.selectionName) {
+      state.selectionName.textContent = selected ?
+        String(packet.accessibleName || packet.text || packet.tag || "Selected element")
+          .replace(/\s+/g, " ").trim().slice(0, 160) : "";
+    }
+    if (state.selectionTag) {
+      state.selectionTag.textContent = selected && packet.tag ? "<" + packet.tag + ">" : "";
+    }
+    if (state.selectButton && !state.selecting) {
+      state.selectButton.textContent = selected ? "Pick another" : "Pick element";
+    }
+  }
+  function clearSelection(notify) {
+    state.selected = null;
+    state.hovered = null;
+    if (state.outline) state.outline.style.display = "none";
+    setSelectionSummary({});
+    if (notify) sendEvent("selection.clear", null, nextMessageId("selection"));
+  }
+  function stopSelecting() {
+    state.selecting = false;
+    state.hovered = null;
+    if (state.selectionShield) state.selectionShield.hidden = true;
+    if (state.selectButton) {
+      state.selectButton.textContent = state.selected ? "Pick another" : "Pick element";
+      state.selectButton.setAttribute("aria-pressed", "false");
+    }
+    if (state.selected) positionOutline(state.selected, true);
+    else if (state.outline) state.outline.style.display = "none";
+  }
+
+  function startSelecting() {
+    state.selecting = true;
+    state.hovered = null;
+    state.selectionShield.hidden = false;
+    state.selectButton.textContent = "Cancel";
+    state.selectButton.setAttribute("aria-pressed", "true");
+  }
+
+  function elementUnderShield(event) {
+    state.selectionShield.style.pointerEvents = "none";
+    var element = document.elementFromPoint(event.clientX, event.clientY);
+    state.selectionShield.style.pointerEvents = "";
+    if (!element || element === state.host ||
+        (state.host && event.composedPath().indexOf(state.host) === -1 &&
+         state.host.contains && state.host.contains(element))) return null;
+    return element;
+  }
+
+  function handleShieldMove(event) {
+    if (!state.selecting) return;
+    var element = elementUnderShield(event);
+    if (!element) return;
+    state.hovered = element;
+    positionOutline(element, false);
+  }
+
+  function handleShieldClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    if (!state.selecting) return;
+    var element = elementUnderShield(event) || state.hovered;
+    if (!element) return;
+    state.selected = element;
+    var packet = selectionPacket(element);
+    setSelectionSummary(packet);
+    positionOutline(element, true);
+    stopSelecting();
+    sendEvent("selection.update", packet, nextMessageId("selection"));
+    openPanel();
+    state.input.focus();
+  }
+
   function restoreSelection(packet) {
     if (!packet || !Array.isArray(packet.selectors)) return;
     var element = null;
@@ -72,122 +137,80 @@
       }
       if (element) break;
     }
-    if (!element) {
-      setSelectionLabel("Selection lost — pick it again", null, false);
-      return;
-    }
+    if (!element) return;
     state.selected = element;
     var restored = selectionPacket(element);
-    setSelectionLabel(restored.accessibleName || restored.text || restored.tag,
-      restored.tag);
+    setSelectionSummary(restored);
     positionOutline(element, true);
-    sendEvent("selection.update", restored, nextMessageId());
-  }
-  function positionOutline(element, selected) {
-    if (!state.outline || !element) return;
-    var rect = element.getBoundingClientRect();
-    state.outline.style.display = "block";
-    state.outline.style.transform = "translate(" + rect.x + "px," + rect.y + "px)";
-    state.outline.style.width = rect.width + "px";
-    state.outline.style.height = rect.height + "px";
-    state.outline.style.borderColor = selected ? "#d29a52" : "#4dae84";
-  }
-  function stopSelecting() {
-    state.selecting = false;
-    state.hovered = null;
-    if (state.selectButton) {
-      state.selectButton.textContent = state.selected ? "Pick another" : "Pick element";
-      state.selectButton.setAttribute("aria-pressed", "false");
-    }
-    if (state.selected) positionOutline(state.selected, true);
-    else if (state.outline) state.outline.style.display = "none";
-  }
-  function setSelectionLabel(value, tag, selectedOverride) {
-    var selected = selectedOverride === undefined ? !!state.selected : selectedOverride;
-    var name = String(value || "Selected element").replace(/\s+/g, " ").trim().slice(0, 160);
-    if (state.label) {
-      state.label.textContent = selected ? "Selected: " + name : (value || "No element selected");
-    }
-    if (state.selectedMark) state.selectedMark.hidden = !selected;
-    if (state.selectionSummary) state.selectionSummary.hidden = !selected;
-    if (state.selectionName) state.selectionName.textContent = selected ? name : "";
-    if (state.selectionTag) state.selectionTag.textContent = selected && tag ? "<" + tag + ">" : "";
-    if (state.clearButton) state.clearButton.hidden = !selected;
-    if (state.selectButton && !state.selecting) {
-      state.selectButton.textContent = selected ? "Pick another" : "Pick element";
-    }
-    if (state.emptyHint) {
-      state.emptyHint.textContent = selected ?
-        "Selected “" + name + "”. Describe what Clay should change or fix." :
-        "Select an element, or describe a page-wide change.";
-    }
-  }
-  function clearSelection(notify) {
-    state.selected = null;
-    state.hovered = null;
-    if (state.outline) state.outline.style.display = "none";
-    setSelectionLabel(null);
-    if (notify) sendEvent("selection.clear", null, nextMessageId());
-  }
-  function startSelecting() {
-    state.selecting = true;
-    state.selectButton.textContent = "Cancel";
-    state.selectButton.setAttribute("aria-pressed", "true");
-  }
-  function onPointerMove(event) {
-    if (!state.selecting || !state.host) return;
-    if (event.composedPath().indexOf(state.host) !== -1) {
-      state.hovered = null;
-      if (state.selected) positionOutline(state.selected, true);
-      else if (state.outline) state.outline.style.display = "none";
-      return;
-    }
-    var element = document.elementFromPoint(event.clientX, event.clientY);
-    if (!element || element === state.host) return;
-    state.hovered = element;
-    positionOutline(element, false);
-  }
-  function onPointerDown(event) {
-    if (state.host && event.composedPath().indexOf(state.host) !== -1) {
-      state.hovered = null;
-      return;
-    }
-    if (!state.selecting || !state.hovered) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation();
-    state.selected = state.hovered;
-    var packet = selectionPacket(state.selected);
-    setSelectionLabel(packet.accessibleName || packet.text || packet.tag, packet.tag);
-    positionOutline(state.selected, true);
-    stopSelecting();
-    sendEvent("selection.update", packet, nextMessageId());
-  }
-  function appendBubble(kind, text) {
-    var empty = state.transcript.querySelector(".empty");
-    if (empty) empty.remove();
-    var bubble = document.createElement("div");
-    bubble.className = "bubble " + kind;
-    bubble.textContent = text;
-    state.transcript.appendChild(bubble);
-    state.transcript.scrollTop = state.transcript.scrollHeight;
-    return bubble;
+    sendEvent("selection.update", restored, nextMessageId("selection"));
   }
 
-  function appendStatus(text) {
-    var status = document.createElement("div");
-    status.className = "status";
-    status.textContent = text;
-    state.transcript.appendChild(status);
-    state.transcript.scrollTop = state.transcript.scrollHeight;
+  function reportIcon(status) {
+    if (status === "completed") return "✓";
+    if (status === "needs_input") return "?";
+    if (status === "failed") return "!";
+    return "●";
   }
 
-  function setBusy(busy) {
-    if (!state.sendButton || !state.input) return;
-    state.sendButton.disabled = busy || !state.connected;
-    state.input.disabled = busy || !state.connected;
-    if (state.captureButton) state.captureButton.disabled = busy || !state.connected;
-    state.sendButton.textContent = busy ? "Working…" : "Send";
+  function renderReports() {
+    if (!state.reportList) return;
+    var reports = Object.keys(state.reports).map(function (id) {
+      return state.reports[id];
+    });
+    state.reportCount.textContent = String(reports.length);
+    state.reportList.innerHTML = "";
+    if (!reports.length) {
+      var empty = document.createElement("div");
+      empty.className = "reports-empty";
+      empty.textContent = "No reports yet.";
+      state.reportList.appendChild(empty);
+    }
+    var counts = { working: 0, needs_input: 0, completed: 0, failed: 0 };
+    for (var i = 0; i < reports.length; i++) {
+      var report = reports[i];
+      var status = counts[report.status] === undefined ? "working" : report.status;
+      counts[status]++;
+      var row = document.createElement("div");
+      row.className = "report " + status;
+      var icon = document.createElement("span");
+      icon.className = "report-icon";
+      icon.textContent = reportIcon(status);
+      var title = document.createElement("span");
+      title.className = "report-title";
+      title.textContent = report.title || "Live UI report";
+      var message = document.createElement("span");
+      message.className = "report-message";
+      message.textContent = report.message || "Being worked on.";
+      row.appendChild(icon);
+      row.appendChild(title);
+      row.appendChild(message);
+      state.reportList.appendChild(row);
+    }
+    var parts = [];
+    if (counts.working) parts.push(counts.working + " working");
+    if (counts.needs_input) parts.push(counts.needs_input + " need input");
+    if (counts.failed) parts.push(counts.failed + " failed");
+    if (counts.completed) parts.push(counts.completed + " done");
+    var aggregate = counts.needs_input ? "needs_input" :
+      (counts.failed ? "failed" : (counts.working ? "working" :
+        (counts.completed ? "completed" : "")));
+    state.aggregateDot.className = "aggregate-dot" + (aggregate ? " " + aggregate : "");
+    state.aggregateLabel.textContent = parts.length ? parts.join(" · ") :
+      (state.connected ? "Ready" : "Disconnected");
+  }
+
+  function setComposeError(message) {
+    if (!state.composeError) return;
+    state.composeError.textContent = message || "";
+    state.composeError.hidden = !message;
+  }
+
+  function setSubmitting(submitting, label) {
+    state.submitting = submitting;
+    if (!state.submitButton || !state.input) return;
+    state.submitButton.disabled = submitting || !state.connected;
+    state.input.disabled = submitting || !state.connected;
+    state.submitButton.textContent = submitting ? (label || "Reporting…") : "Report";
   }
 
   function setConnected(connected) {
@@ -198,23 +221,21 @@
     state.connected = connected;
     if (state.connection) {
       state.connection.textContent = connected ?
-        "Connected · messages go to this chat" : "Disconnected from Clay";
+        "Connected · each report gets its own worker" : "Disconnected from Clay";
       state.connection.classList.toggle("offline", !connected);
     }
-    setBusy(!!state.activeOperationId);
+    setSubmitting(state.submitting);
+    renderReports();
   }
-
   function setConnectionError(message) {
-    if (state.connectionTimer) {
-      clearTimeout(state.connectionTimer);
-      state.connectionTimer = null;
-    }
     state.connected = false;
     if (state.connection) {
       state.connection.textContent = message || "Disconnected from Clay";
       state.connection.classList.add("offline");
     }
-    setBusy(!!state.activeOperationId);
+    setComposeError(message || "Live UI is disconnected.");
+    setSubmitting(false);
+    renderReports();
   }
 
   function waitForConnection() {
@@ -222,18 +243,11 @@
     state.connectionTimer = setTimeout(function () {
       if (!state.connected) {
         setConnectionError("Clay did not confirm the connection · reopen Live UI");
-        appendStatus("The Live UI connection timed out. Exit and start it again.");
       }
     }, 8000);
   }
 
-  function renderAttachment() {
-    if (!state.attachment) return;
-    state.attachment.classList.toggle("ready", !!state.screenshot);
-  }
-
-  function captureScreenshot() {
-    if (!state.connected || !state.captureButton) return;
+  function captureEvidence(callback) {
     var generation = state.documentGeneration;
     var viewport = {
       width: innerWidth,
@@ -241,83 +255,91 @@
       scrollX: scrollX,
       scrollY: scrollY,
     };
-    state.captureButton.disabled = true;
-    state.captureButton.textContent = "Capturing…";
     state.host.style.visibility = "hidden";
     requestAnimationFrame(function () {
-      sendEvent("screenshot.capture", {
+      sendEvent("evidence.capture", {
         documentGeneration: generation,
         viewport: viewport,
         masks: globalThis.ClayLiveUiTargetContext.screenshotMasks(),
-      }, nextMessageId(), function (response) {
+      }, nextMessageId("evidence"), function (response) {
         if (state.host) state.host.style.visibility = "";
-        state.captureButton.textContent = "Add screenshot";
-        setBusy(!!state.activeOperationId);
         var unchanged = generation === state.documentGeneration &&
           viewport.width === innerWidth && viewport.height === innerHeight &&
           viewport.scrollX === scrollX && viewport.scrollY === scrollY;
         if (!response || !response.ok || !response.screenshot || !unchanged) {
-          appendStatus(response && response.error ?
-            response.error : "The page moved during capture. Try again.");
+          callback(response && response.error ?
+            response.error : "The page moved during capture. Try the report again.");
           return;
         }
-        state.screenshot = response.screenshot;
-        renderAttachment();
+        callback(null, {
+          screenshot: response.screenshot,
+          diagnostics: response.diagnostics || { console: [], network: [] },
+        });
       });
     });
   }
 
-  function sendChat() {
+  function submitReport() {
     var text = state.input.value.trim();
-    if (!text || state.activeOperationId || !state.connected) return;
-    var screenshot = state.screenshot;
-    appendBubble("user", text);
-    state.input.value = "";
-    state.screenshot = null;
-    renderAttachment();
-    state.assistantBubble = null;
-    state.activeOperationId = "pending";
-    setBusy(true);
-    sendEvent("chat.message", {
-      text: text,
-      screenshot: screenshot,
-    }, nextChatId(), function (response) {
-      if (response && response.ok) return;
-      state.activeOperationId = null;
-      state.screenshot = screenshot;
-      renderAttachment();
-      appendStatus("Clay is disconnected. Your message was not sent.");
-      setConnected(false);
+    if (!text || state.submitting || !state.connected) return;
+    setComposeError("");
+    setSubmitting(true, "Capturing…");
+    captureEvidence(function (error, evidence) {
+      if (error) {
+        setComposeError(error);
+        setSubmitting(false);
+        return;
+      }
+      var clientMessageId = nextMessageId("report");
+      state.pendingSubmission = {
+        clientMessageId: clientMessageId,
+        text: text,
+      };
+      state.submitButton.textContent = "Sending…";
+      sendEvent("report.submit", {
+        text: text,
+        screenshot: evidence.screenshot,
+        diagnostics: evidence.diagnostics,
+      }, clientMessageId, function (response) {
+        if (response && response.ok) return;
+        state.pendingSubmission = null;
+        setComposeError(response && response.error ?
+          response.error : "Clay is disconnected. The report was not sent.");
+        setConnected(false);
+      });
     });
   }
 
-  function handleChatEvent(envelope) {
+  function openPanel() {
+    state.drawer.classList.add("open");
+    state.panelButton.setAttribute("aria-expanded", "true");
+    requestAnimationFrame(state.clampPosition);
+  }
+
+  function handleReportEvent(envelope) {
     var payload = envelope.payload || {};
-    if (envelope.event === "chat.accepted") {
-      state.activeOperationId = payload.operationId || state.activeOperationId;
+    if (envelope.event === "reports.snapshot") {
+      state.reports = {};
+      var reports = Array.isArray(payload.reports) ? payload.reports : [];
+      for (var i = 0; i < reports.length; i++) {
+        if (reports[i] && reports[i].reportId) {
+          state.reports[reports[i].reportId] = reports[i];
+        }
+      }
+      renderReports();
       return;
     }
-    if (envelope.event !== "chat.stream") return;
-    if (state.activeOperationId && payload.operationId !== state.activeOperationId) return;
-    state.activeOperationId = payload.operationId || state.activeOperationId;
-    if (payload.type === "delta") {
-      if (!state.assistantBubble) state.assistantBubble = appendBubble("assistant", "");
-      state.assistantBubble.textContent += payload.text || "";
-      state.transcript.scrollTop = state.transcript.scrollHeight;
-    } else if (payload.type === "tool_start" || payload.type === "tool_executing") {
-      appendStatus((payload.tool || "Working") + "…");
-    } else if (payload.type === "needs_input") {
-      appendStatus(payload.text || "Input required in Clay.");
-    } else if (payload.type === "error") {
-      appendStatus(payload.text || "The turn failed.");
-      state.activeOperationId = null;
-      state.assistantBubble = null;
-      setBusy(false);
-    } else if (payload.type === "done") {
-      appendStatus(payload.code ? "Turn ended with an error." : "Ready for your review.");
-      state.activeOperationId = null;
-      state.assistantBubble = null;
-      setBusy(false);
+    if ((envelope.event === "report.accepted" ||
+        envelope.event === "report.status") && payload.reportId) {
+      state.reports[payload.reportId] = payload;
+      renderReports();
+    }
+    if (envelope.event === "report.accepted" && state.pendingSubmission) {
+      state.pendingSubmission = null;
+      state.input.value = "";
+      clearSelection(true);
+      setSubmitting(false);
+      setComposeError("");
     }
   }
 
@@ -333,31 +355,29 @@
       if (state.selecting) stopSelecting();
       else startSelecting();
     });
+    state.selectionShield.addEventListener("pointermove", handleShieldMove);
+    state.selectionShield.addEventListener("click", handleShieldClick);
     state.clearButton.addEventListener("click", function () { clearSelection(true); });
-    state.chatButton.addEventListener("click", function () {
+    state.panelButton.addEventListener("click", function () {
       state.drawer.classList.toggle("open");
-      state.chatButton.setAttribute("aria-expanded",
+      state.panelButton.setAttribute("aria-expanded",
         state.drawer.classList.contains("open") ? "true" : "false");
       requestAnimationFrame(state.clampPosition);
       if (state.drawer.classList.contains("open")) state.input.focus();
     });
-    state.captureButton.addEventListener("click", captureScreenshot);
-    state.removeShotButton.addEventListener("click", function () {
-      state.screenshot = null;
-      renderAttachment();
-    });
-    state.sendButton.addEventListener("click", sendChat);
+    state.submitButton.addEventListener("click", submitReport);
     state.input.addEventListener("keydown", function (event) {
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
-        sendChat();
+        submitReport();
       }
     });
     state.exitButton.addEventListener("click", function () {
       sendEvent("target.closed", { reason: "user_exit" });
       destroy();
     });
-    setBusy(false);
+    setSubmitting(false);
+    renderReports();
   }
 
   function destroy() {
@@ -366,28 +386,40 @@
     clearSelection(false);
     if (state.host) state.host.remove();
     Object.assign(state, {
-      host: null, shell: null, outline: null, label: null, selectedMark: null,
-      selectionSummary: null, selectionName: null, selectionTag: null,
-      emptyHint: null, clearButton: null,
-      selectButton: null, chatButton: null, captureButton: null,
-      attachment: null, connection: null, drawer: null, transcript: null,
-      input: null, sendButton: null, activeOperationId: null, screenshot: null,
-      removeShotButton: null, exitButton: null, clampPosition: null,
-      connected: false, connectionTimer: null, pairingId: null,
+      pairingId: null,
+      host: null,
+      shell: null,
+      selectionShield: null,
+      outline: null,
+      selectionSummary: null,
+      selectionName: null,
+      selectionTag: null,
+      clearButton: null,
+      selectButton: null,
+      panelButton: null,
+      aggregateDot: null,
+      aggregateLabel: null,
+      reportList: null,
+      reportCount: null,
+      composeError: null,
+      connection: null,
+      drawer: null,
+      input: null,
+      submitButton: null,
+      exitButton: null,
+      clampPosition: null,
+      connected: false,
+      submitting: false,
+      pendingSubmission: null,
+      connectionTimer: null,
+      reports: {},
     });
   }
 
-  document.addEventListener("pointermove", onPointerMove, true);
-  document.addEventListener("pointerdown", onPointerDown, true);
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape" && state.selecting) {
       event.preventDefault();
       stopSelecting();
-    } else if (state.selecting && event.key === "Enter" &&
-        document.activeElement && document.activeElement !== document.body &&
-        document.activeElement !== state.host) {
-      state.hovered = document.activeElement;
-      onPointerDown(event);
     }
   }, true);
   window.addEventListener("scroll", function () {
@@ -446,15 +478,18 @@
         }
       }
       if (message.envelope.type === "live_ui_relay") {
-        handleChatEvent(message.envelope);
+        handleReportEvent(message.envelope);
       }
       if (message.envelope.type === "live_ui_state" &&
           message.envelope.state === "error") {
-        appendStatus(message.envelope.error || "Live UI could not complete the request.");
-        setConnectionError(message.envelope.error || "Live UI could not connect");
-        state.activeOperationId = null;
-        state.assistantBubble = null;
-        setBusy(false);
+        var errorText = message.envelope.error || "Live UI could not complete the request.";
+        if (message.envelope.code === "LIVE_UI_EXTENSION_OFFLINE") {
+          setConnectionError(errorText);
+        } else {
+          state.pendingSubmission = null;
+          setComposeError(errorText);
+          setSubmitting(false);
+        }
       }
       sendResponse({ ok: true });
     }
