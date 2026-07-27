@@ -203,6 +203,7 @@ chrome.runtime.onConnect.addListener(function (port) {
 
   port.onDisconnect.addListener(function () {
     void chrome.runtime.lastError;
+    liveUiRuntime.handleControlDisconnected(tabId);
     delete clayPorts[tabId];
     clayTabIds.delete(tabId);
   });

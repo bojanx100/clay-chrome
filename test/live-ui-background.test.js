@@ -55,9 +55,13 @@ test("pair injects the target and relays target events to the owning control", f
     allowedOrigin: "http://localhost:4242",
     nonce: "nonce-1",
     reconnectCredential: "reconnect-1",
+    projectLabel: "clay",
+    sessionLabel: "Framer workflow",
   }, function (value) { result = value; }, { clayTabId: 7 });
   assert.deepStrictEqual(result, { ok: true });
   assert.strictEqual(state.targetMessages[0].message.type, "live_ui_init");
+  assert.strictEqual(state.targetMessages[0].message.projectLabel, "clay");
+  assert.strictEqual(state.targetMessages[0].message.sessionLabel, "Framer workflow");
 
   var response = null;
   var handled = state.runtime.handleTargetMessage({
@@ -79,4 +83,52 @@ test("pair injects the target and relays target events to the owning control", f
   });
   assert.strictEqual(state.controlMessages[1].type, "clay_live_ui_restore");
   assert.strictEqual(state.controlMessages[1].reconnectCredential, "reconnect-1");
+});
+
+test("a new pairing replaces stale state for the same target tab", function () {
+  var state = harness();
+  function pair(pairingId, clayTabId) {
+    var result = null;
+    state.runtime.pair({
+      protocolVersion: 1,
+      pairingId: pairingId,
+      targetTabId: 42,
+      allowedOrigin: "http://localhost:4242",
+      nonce: "nonce-" + pairingId,
+      reconnectCredential: "reconnect-" + pairingId,
+      projectLabel: "clay",
+      sessionLabel: pairingId,
+    }, function (value) { result = value; }, { clayTabId: clayTabId });
+    return result;
+  }
+  assert.deepStrictEqual(pair("pair-old", 7), { ok: true });
+  assert.deepStrictEqual(pair("pair-new", 8), { ok: true });
+  assert.ok(state.targetMessages.some(function (entry) {
+    return entry.message.type === "live_ui_destroy" &&
+      entry.message.pairingId === "pair-old";
+  }));
+  assert.ok(state.controlMessages.some(function (entry) {
+    return entry.envelope &&
+      entry.envelope.event === "target.closed" &&
+      entry.envelope.pairingId === "pair-old";
+  }));
+});
+
+test("control disconnect marks the target unavailable until server confirmation", function () {
+  var state = harness();
+  var result = null;
+  state.runtime.pair({
+    protocolVersion: 1,
+    pairingId: "pair-1",
+    targetTabId: 42,
+    allowedOrigin: "http://localhost:4242",
+    nonce: "nonce-1",
+    reconnectCredential: "reconnect-1",
+  }, function (value) { result = value; }, { clayTabId: 7 });
+  assert.deepStrictEqual(result, { ok: true });
+  state.runtime.handleControlDisconnected(7);
+  assert.ok(state.targetMessages.some(function (entry) {
+    return entry.message.type === "live_ui_connection" &&
+      entry.message.state === "disconnected";
+  }));
 });

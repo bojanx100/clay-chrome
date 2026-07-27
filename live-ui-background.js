@@ -27,6 +27,8 @@
           protocolVersion: pairing.protocolVersion,
           lastSelection: pairing.lastSelection || null,
           reconnectCredential: pairing.reconnectCredential || null,
+          projectLabel: pairing.projectLabel || null,
+          sessionLabel: pairing.sessionLabel || null,
         };
       }
       var value = {};
@@ -72,6 +74,8 @@
           allowedOrigin: pairing.allowedOrigin,
           nonce: pairing.nonce || null,
           selection: pairing.lastSelection || null,
+          projectLabel: pairing.projectLabel || "Clay project",
+          sessionLabel: pairing.sessionLabel || "New chat",
         }, function (response) {
           callback(response && response.ok ? { ok: true } : {
             ok: false,
@@ -98,6 +102,18 @@
           callback({ ok: false, error: "Target origin does not match the server authorization" });
           return;
         }
+        var existingIds = Object.keys(pairings);
+        for (var i = 0; i < existingIds.length; i++) {
+          var existing = pairings[existingIds[i]];
+          if (existing.targetTabId !== targetTabId) continue;
+          sendToTarget(existing, {
+            type: "live_ui_destroy",
+            pairingId: existing.pairingId,
+          }, function () {});
+          sendToControl(existing,
+            lifecycleEnvelope(existing, "target.closed", "pairing_replaced"));
+          delete pairings[existing.pairingId];
+        }
         var pairing = {
           pairingId: args.pairingId,
           clayTabId: source.clayTabId,
@@ -106,6 +122,10 @@
           protocolVersion: 1,
           nonce: args.nonce,
           reconnectCredential: args.reconnectCredential || null,
+          projectLabel: typeof args.projectLabel === "string" ?
+            args.projectLabel.slice(0, 160) : "Clay project",
+          sessionLabel: typeof args.sessionLabel === "string" ?
+            args.sessionLabel.slice(0, 160) : "New chat",
         };
         pairings[pairing.pairingId] = pairing;
         save();
@@ -248,6 +268,19 @@
       }
     }
 
+    function handleControlDisconnected(tabId) {
+      var ids = Object.keys(pairings);
+      for (var i = 0; i < ids.length; i++) {
+        var pairing = pairings[ids[i]];
+        if (pairing.clayTabId !== tabId) continue;
+        sendToTarget(pairing, {
+          type: "live_ui_connection",
+          pairingId: pairing.pairingId,
+          state: "disconnected",
+        }, function () {});
+      }
+    }
+
     restore();
     return {
       pair: pair,
@@ -258,6 +291,7 @@
       handleTabComplete: handleTabComplete,
       handleTabRemoved: handleTabRemoved,
       handleControlConnected: handleControlConnected,
+      handleControlDisconnected: handleControlDisconnected,
     };
   }
 
