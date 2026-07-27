@@ -1,6 +1,7 @@
 // Clay Chrome Extension - Background Service Worker
 // Tracks open tabs and relays commands between Clay page and browser
 // Bridges local MCP servers to Clay via Native Messaging
+importScripts("live-ui-background.js");
 
 // --- State ---
 var clayTabIds = new Set();
@@ -21,12 +22,17 @@ chrome.tabs.onCreated.addListener(broadcastTabList);
 chrome.tabs.onRemoved.addListener(function (tabId) {
   clayTabIds.delete(tabId);
   injectedTabs.delete(tabId);
+  if (liveUiRuntime) liveUiRuntime.handleTabRemoved(tabId);
   broadcastTabList();
 });
-chrome.tabs.onUpdated.addListener(function (tabId, changeInfo) {
+chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
   // Page navigated — injection is lost, need to re-inject
   if (changeInfo.status === "loading") {
     injectedTabs.delete(tabId);
+    if (liveUiRuntime) liveUiRuntime.handleTabLoading(tabId);
+  }
+  if (changeInfo.status === "complete" && liveUiRuntime) {
+    liveUiRuntime.handleTabComplete(tabId, tab);
   }
   if (changeInfo.url || changeInfo.title || changeInfo.status === "complete") {
     broadcastTabList();
@@ -57,7 +63,7 @@ function broadcastTabList() {
     allTabs = [];
 
     for (var i = 0; i < tabs.length; i++) {
-      if (!isClayTab(tabs[i])) {
+      if (/^https?:\/\//i.test(tabs[i].url || "")) {
         allTabs.push({
           id: tabs[i].id,
           url: tabs[i].url || "",
@@ -67,11 +73,15 @@ function broadcastTabList() {
       }
     }
 
-    var msg = { type: "clay_ext_tab_list", tabs: allTabs, extensionId: chrome.runtime.id };
     var portIds = Object.keys(clayPorts);
     for (var j = 0; j < portIds.length; j++) {
       try {
-        clayPorts[portIds[j]].postMessage(msg);
+        var ownTabId = Number(portIds[j]);
+        clayPorts[portIds[j]].postMessage({
+          type: "clay_ext_tab_list",
+          tabs: allTabs.filter(function (tab) { return tab.id !== ownTabId; }),
+          extensionId: chrome.runtime.id
+        });
       } catch (e) {
         delete clayPorts[portIds[j]];
       }
@@ -125,11 +135,20 @@ var COMMANDS = {
   tab_screenshot: takeScreenshot,
   tab_navigate: navigateTo,
   tab_wait_navigation: waitForNavigation,
+  live_ui_pair: function (args, callback, source) {
+    liveUiRuntime.pair(args, callback, source);
+  },
+  live_ui_unpair: function (args, callback) {
+    liveUiRuntime.unpair(args, callback);
+  },
 };
 
 // --- Clay Tab Ports (long-lived connections from content scripts) ---
 
 var clayPorts = {}; // tabId -> port
+var liveUiRuntime = ClayLiveUiBackground.createRuntime(chrome, function (tabId) {
+  return clayPorts[tabId] || null;
+});
 
 chrome.runtime.onConnect.addListener(function (port) {
   if (port.name !== "clay-tab") return;
@@ -140,6 +159,9 @@ chrome.runtime.onConnect.addListener(function (port) {
   clayPorts[tabId] = port;
   clayTabIds.add(tabId);
   broadcastTabList();
+  setTimeout(function () {
+    liveUiRuntime.handleControlConnected(tabId, port);
+  }, 250);
   // Auto-connect native host when a Clay tab connects (no popup needed)
   if (!mcpNativePort) mcpConnectNativeHost();
   // Brief delay to let native host initialize before fetching server list
@@ -160,8 +182,12 @@ chrome.runtime.onConnect.addListener(function (port) {
           } catch (e) {
             // Port disconnected
           }
-        });
+        }, { clayTabId: tabId, port: port });
       }
+    }
+
+    if (msg.type === "clay_live_ui_server_event") {
+      liveUiRuntime.handleServerEnvelope(msg.envelope);
     }
 
     // MCP tool call from Clay page
@@ -185,6 +211,7 @@ chrome.runtime.onConnect.addListener(function (port) {
 // --- Popup Message Handling (still uses one-off messages) ---
 
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+  if (liveUiRuntime.handleTargetMessage(msg, sender, sendResponse)) return true;
   if (!sender.tab) {
     if (msg.type === "mcp_check_host") {
       mcpCheckHost(sendResponse);

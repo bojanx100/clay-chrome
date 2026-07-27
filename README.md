@@ -107,10 +107,16 @@ When `selector` is provided, the element's bounding rect is computed via `Runtim
 
 ## Integration with Clay
 
-Clay uses this extension for two things:
+Clay uses this extension for three things:
 
 1. **Context sources**: Users select browser tabs as context sources. Each message automatically includes console logs, network requests, page text, and a screenshot from the selected tabs.
 2. **MCP tools**: Clay's Browser MCP server exposes 17 `browser_*` tools to Claude, which call extension commands through an HTTP bridge.
+3. **Live UI**: A Clay session can pair with its exact loopback development tab, inject a closed-shadow-root element picker and chat drawer, retain a sanitized selection across reloads, and relay the pinned session's response into the page.
+
+Live UI pairings are stored in `chrome.storage.session`, bound to one Clay
+control tab and one target tab, and restored only through a server-issued
+rotating reconnect credential. Closing Live UI or the target tab revokes the
+pairing.
 
 ## Permissions
 
@@ -125,4 +131,6 @@ Clay uses this extension for two things:
 - Content script only runs on `*.clay.studio`, `localhost`, and `127.0.0.1`
 - Extension only executes commands originating from the authenticated Clay server
 - Tab list excludes Clay tabs themselves (prevents recursive debugging)
+- Live UI only accepts the exact server-authorized loopback origin and target tab
+- Value-bearing controls are excluded from selection text sent to Clay
 - `chrome.debugger` shows Chrome's built-in "debugging this tab" banner (cannot be suppressed)
