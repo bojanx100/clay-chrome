@@ -1,5 +1,154 @@
 (function (root) {
   var STORAGE_KEY = "clayLiveUiPairingsV1";
+  var MAX_MASKS = 256;
+
+  function capturePacket(payload) {
+    var viewport = payload && payload.viewport;
+    if (!viewport) return null;
+    var width = Number(viewport.width);
+    var height = Number(viewport.height);
+    var scrollX = Number(viewport.scrollX);
+    var scrollY = Number(viewport.scrollY);
+    if (!isFinite(width) || !isFinite(height) || width < 1 || height < 1 ||
+        width > 20000 || height > 20000 ||
+        !isFinite(scrollX) || !isFinite(scrollY)) return null;
+    var masks = [];
+    var inputMasks = Array.isArray(payload.masks) ? payload.masks : [];
+    for (var i = 0; i < inputMasks.length && masks.length < MAX_MASKS; i++) {
+      var mask = inputMasks[i] || {};
+      var x = Number(mask.x);
+      var y = Number(mask.y);
+      var maskWidth = Number(mask.width);
+      var maskHeight = Number(mask.height);
+      if (!isFinite(x) || !isFinite(y) || !isFinite(maskWidth) ||
+          !isFinite(maskHeight) || maskWidth <= 0 || maskHeight <= 0) continue;
+      masks.push({ x: x, y: y, width: maskWidth, height: maskHeight });
+    }
+    return {
+      documentGeneration: String(payload.documentGeneration || ""),
+      viewport: {
+        width: width,
+        height: height,
+        scrollX: scrollX,
+        scrollY: scrollY,
+      },
+      masks: masks,
+    };
+  }
+
+  function base64Bytes(data) {
+    var binary = atob(data);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  function bytesBase64(bytes) {
+    var parts = [];
+    for (var i = 0; i < bytes.length; i += 32768) {
+      parts.push(String.fromCharCode.apply(null, bytes.subarray(i, i + 32768)));
+    }
+    return btoa(parts.join(""));
+  }
+
+  function maskPng(data, packet, callback) {
+    if (typeof OffscreenCanvas === "undefined" ||
+        typeof createImageBitmap !== "function") {
+      callback({ ok: false, error: "Secure screenshot masking is unavailable" });
+      return;
+    }
+    var blob = new Blob([base64Bytes(data)], { type: "image/png" });
+    createImageBitmap(blob).then(function (bitmap) {
+      var canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      var context = canvas.getContext("2d");
+      context.drawImage(bitmap, 0, 0);
+      context.fillStyle = "#17151d";
+      var scaleX = bitmap.width / packet.viewport.width;
+      var scaleY = bitmap.height / packet.viewport.height;
+      for (var i = 0; i < packet.masks.length; i++) {
+        var mask = packet.masks[i];
+        var x = Math.floor(mask.x * scaleX) - 2;
+        var y = Math.floor(mask.y * scaleY) - 2;
+        var width = Math.ceil(mask.width * scaleX) + 4;
+        var height = Math.ceil(mask.height * scaleY) + 4;
+        context.fillRect(x, y, width, height);
+      }
+      bitmap.close();
+      return canvas.convertToBlob({ type: "image/png" });
+    }).then(function (maskedBlob) {
+      return maskedBlob.arrayBuffer();
+    }).then(function (buffer) {
+      callback({
+        ok: true,
+        mediaType: "image/png",
+        data: bytesBase64(new Uint8Array(buffer)),
+      });
+    }).catch(function () {
+      callback({ ok: false, error: "Secure screenshot masking failed" });
+    });
+  }
+
+  function captureMaskedScreenshot(chromeApi, pairing, payload, callback) {
+    var packet = capturePacket(payload);
+    if (!packet || !packet.documentGeneration) {
+      callback({ ok: false, error: "Screenshot context is invalid" });
+      return;
+    }
+    var debuggee = { tabId: pairing.targetTabId };
+    chromeApi.debugger.attach(debuggee, "1.3", function () {
+      var attachError = chromeApi.runtime.lastError;
+      if (attachError) {
+        callback({ ok: false, error: attachError.message });
+        return;
+      }
+      chromeApi.debugger.sendCommand(debuggee, "Page.captureScreenshot", {
+        format: "png",
+        fromSurface: true,
+      }, function (result) {
+        var captureError = chromeApi.runtime.lastError;
+        chromeApi.debugger.detach(debuggee, function () {
+          void chromeApi.runtime.lastError;
+        });
+        if (captureError || !result || !result.data) {
+          callback({
+            ok: false,
+            error: captureError ? captureError.message : "Screenshot capture failed",
+          });
+          return;
+        }
+        chromeApi.scripting.executeScript({
+          target: { tabId: pairing.targetTabId },
+          func: function () {
+            var host = document.querySelector("clay-live-ui[data-clay-live-ui-overlay]");
+            return {
+              documentGeneration: host ?
+                host.getAttribute("data-clay-live-ui-generation") : "",
+              width: window.innerWidth,
+              height: window.innerHeight,
+              scrollX: window.scrollX,
+              scrollY: window.scrollY,
+            };
+          },
+        }, function (results) {
+          var current = results && results[0] ? results[0].result : null;
+          var viewport = packet.viewport;
+          if (!current ||
+              current.documentGeneration !== packet.documentGeneration ||
+              current.width !== viewport.width ||
+              current.height !== viewport.height ||
+              current.scrollX !== viewport.scrollX ||
+              current.scrollY !== viewport.scrollY) {
+            callback({
+              ok: false,
+              error: "The page moved during capture. Try the screenshot again.",
+            });
+            return;
+          }
+          maskPng(result.data, packet, callback);
+        });
+      });
+    });
+  }
 
   function originOf(url) {
     try {
@@ -11,7 +160,11 @@
     }
   }
 
-  function createRuntime(chromeApi, clayPortForTab) {
+  function createRuntime(chromeApi, clayPortForTab, options) {
+    options = options || {};
+    var captureScreenshot = options.captureScreenshot || function (pairing, payload, callback) {
+      captureMaskedScreenshot(chromeApi, pairing, payload, callback);
+    };
     var pairings = {};
 
     function save() {
@@ -164,6 +317,25 @@
       if (message.event === "selection.update" && message.payload) {
         pairing.lastSelection = message.payload;
         save();
+      }
+      if (message.event === "selection.clear") {
+        pairing.lastSelection = null;
+        save();
+      }
+      if (message.event === "screenshot.capture") {
+        captureScreenshot(pairing, message.payload, function (result) {
+          sendResponse(result && result.ok ? {
+            ok: true,
+            screenshot: {
+              mediaType: result.mediaType,
+              data: result.data,
+            },
+          } : {
+            ok: false,
+            error: result && result.error ? result.error : "Screenshot capture failed",
+          });
+        });
+        return true;
       }
       var forwarded = sendToControl(pairing, {
         type: "live_ui_relay",

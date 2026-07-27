@@ -1,8 +1,11 @@
 var test = require("node:test");
 var assert = require("node:assert");
+var fs = require("node:fs");
+var path = require("node:path");
 var moduleApi = require("../live-ui-background");
 
-function harness() {
+function harness(options) {
+  options = options || {};
   var stored = {};
   var targetMessages = [];
   var controlMessages = [];
@@ -31,6 +34,8 @@ function harness() {
     return {
       postMessage: function (message) { controlMessages.push(message); },
     };
+  }, {
+    captureScreenshot: options.captureScreenshot,
   });
   return {
     runtime: runtime,
@@ -43,6 +48,18 @@ test("origin validation keeps pairing on the authorized origin", function () {
   assert.strictEqual(moduleApi.originOf("http://localhost:4242/path"),
     "http://localhost:4242");
   assert.strictEqual(moduleApi.originOf("javascript:alert(1)"), null);
+});
+
+test("target overlay exposes identity, capture, clear, and bounded modules", function () {
+  var root = path.join(__dirname, "..");
+  var target = fs.readFileSync(path.join(root, "live-ui-target.js"), "utf8");
+  var background = fs.readFileSync(path.join(root, "live-ui-background.js"), "utf8");
+  assert.match(target, /Sending to/);
+  assert.match(target, /Add screenshot/);
+  assert.match(target, /selection\.clear/);
+  assert.match(target, /button\[hidden\]/);
+  assert.ok(target.split("\n").length < 500);
+  assert.ok(background.split("\n").length < 500);
 });
 
 test("pair injects the target and relays target events to the owning control", function () {
@@ -131,4 +148,86 @@ test("control disconnect marks the target unavailable until server confirmation"
     return entry.message.type === "live_ui_connection" &&
       entry.message.state === "disconnected";
   }));
+});
+
+test("selection clear removes persisted selection before reinjection", function () {
+  var state = harness();
+  var result = null;
+  state.runtime.pair({
+    protocolVersion: 1,
+    pairingId: "pair-1",
+    targetTabId: 42,
+    allowedOrigin: "http://localhost:4242",
+    nonce: "nonce-1",
+    reconnectCredential: "reconnect-1",
+  }, function (value) { result = value; }, { clayTabId: 7 });
+  assert.deepStrictEqual(result, { ok: true });
+  state.runtime.handleTargetMessage({
+    type: "live_ui_target_event",
+    pairingId: "pair-1",
+    event: "selection.update",
+    clientMessageId: "selection-1",
+    payload: { tag: "button" },
+  }, {
+    tab: { id: 42, url: "http://localhost:4242/pricing" },
+  }, function () {});
+  state.runtime.handleTargetMessage({
+    type: "live_ui_target_event",
+    pairingId: "pair-1",
+    event: "selection.clear",
+    clientMessageId: "selection-clear-1",
+  }, {
+    tab: { id: 42, url: "http://localhost:4242/pricing" },
+  }, function () {});
+  state.runtime.handleTabComplete(42, {
+    id: 42,
+    url: "http://localhost:4242/pricing",
+  });
+  var initMessages = state.targetMessages.filter(function (entry) {
+    return entry.message.type === "live_ui_init";
+  });
+  assert.strictEqual(initMessages[initMessages.length - 1].message.selection, null);
+});
+
+test("screenshot capture stays inside the extension until the masked result is ready", function () {
+  var captureArgs = null;
+  var state = harness({
+    captureScreenshot: function (pairing, payload, callback) {
+      captureArgs = { pairing: pairing, payload: payload };
+      callback({
+        ok: true,
+        mediaType: "image/png",
+        data: "bWFza2VkLXBuZw==",
+      });
+    },
+  });
+  var result = null;
+  state.runtime.pair({
+    protocolVersion: 1,
+    pairingId: "pair-1",
+    targetTabId: 42,
+    allowedOrigin: "http://localhost:4242",
+    nonce: "nonce-1",
+    reconnectCredential: "reconnect-1",
+  }, function (value) { result = value; }, { clayTabId: 7 });
+  assert.deepStrictEqual(result, { ok: true });
+  var response = null;
+  state.runtime.handleTargetMessage({
+    type: "live_ui_target_event",
+    pairingId: "pair-1",
+    event: "screenshot.capture",
+    clientMessageId: "capture-1",
+    payload: {
+      documentGeneration: "document-1",
+      viewport: { width: 1200, height: 800, scrollX: 0, scrollY: 0 },
+      masks: [{ x: 10, y: 20, width: 100, height: 30 }],
+    },
+  }, {
+    tab: { id: 42, url: "http://localhost:4242/pricing" },
+  }, function (value) { response = value; });
+  assert.strictEqual(captureArgs.pairing.pairingId, "pair-1");
+  assert.strictEqual(captureArgs.payload.masks.length, 1);
+  assert.strictEqual(response.ok, true);
+  assert.strictEqual(response.screenshot.data, "bWFza2VkLXBuZw==");
+  assert.strictEqual(state.controlMessages.length, 0);
 });
