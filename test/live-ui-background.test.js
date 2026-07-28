@@ -3,6 +3,7 @@ var assert = require("node:assert");
 var fs = require("node:fs");
 var path = require("node:path");
 var moduleApi = require("../live-ui-background");
+var reactModule = require("../live-ui-react-background");
 
 function harness(options) {
   options = options || {};
@@ -37,6 +38,7 @@ function harness(options) {
   }, {
     captureScreenshot: options.captureScreenshot,
     captureEvidence: options.captureEvidence,
+    inspectComponent: options.inspectComponent,
   });
   return {
     runtime: runtime,
@@ -51,32 +53,72 @@ test("origin validation keeps pairing on the authorized origin", function () {
   assert.strictEqual(moduleApi.originOf("javascript:alert(1)"), null);
 });
 
-test("target overlay exposes a compact report queue and isolated picker", function () {
+test("React inspection executes in the page world with bounded selectors", function () {
+  var execution = null;
+  var result = null;
+  reactModule.inspectReactComponent({
+    runtime: { lastError: null },
+    scripting: {
+      executeScript: function (options, callback) {
+        execution = options;
+        callback([{ result: {
+          framework: "react",
+          name: "Clock",
+          chain: ["Clock", "App"],
+          source: { file: "src/Clock.tsx", line: 7, column: 2 },
+        } }]);
+      },
+    },
+  }, {
+    targetTabId: 42,
+  }, {
+    selectors: new Array(12).fill("#clock"),
+  }, function (value) { result = value; });
+  assert.strictEqual(execution.world, "MAIN");
+  assert.strictEqual(execution.args[0].length, 8);
+  assert.strictEqual(result.component.name, "Clock");
+});
+
+test("target overlay exposes a React inspector, change rail, and isolated picker", function () {
   var root = path.join(__dirname, "..");
   var target = fs.readFileSync(path.join(root, "live-ui-target.js"), "utf8");
   var targetContext = fs.readFileSync(
     path.join(root, "live-ui-target-context.js"), "utf8");
   var targetUi = fs.readFileSync(path.join(root, "live-ui-target-ui.js"), "utf8");
+  var targetReports = fs.readFileSync(
+    path.join(root, "live-ui-target-reports.js"), "utf8");
   var background = fs.readFileSync(path.join(root, "live-ui-background.js"), "utf8");
   var evidence = fs.readFileSync(path.join(root, "live-ui-evidence.js"), "utf8");
+  var reactBridge = fs.readFileSync(
+    path.join(root, "live-ui-react-background.js"), "utf8");
+  var inject = fs.readFileSync(path.join(root, "inject.js"), "utf8");
   assert.match(targetUi, /Coordinator/);
-  assert.match(targetUi, /attached automatically/);
+  assert.match(targetUi, /attach automatically/);
   assert.match(targetUi, /selection-shield/);
   assert.match(targetUi, /aggregate-dot/);
+  assert.match(targetUi, /Show Live UI sidebar/);
+  assert.match(targetUi, /Selected component/);
+  assert.match(targetReports, /worker-outline/);
+  assert.match(targetReports, /Live update applied without reloading/);
   assert.match(target, /selection\.clear/);
   assert.match(target, /report\.submit/);
   assert.match(target, /evidence\.capture/);
+  assert.match(target, /component\.inspect/);
   assert.match(target, /handleShieldClick/);
-  assert.match(targetUi, /Drag Live UI/);
-  assert.match(targetUi, /setPointerCapture/);
   assert.match(targetUi, /stopImmediatePropagation/);
   assert.match(background, /captureEvidence/);
   assert.match(evidence, /captureDiagnostics/);
+  assert.match(reactBridge, /__reactFiber\$/);
+  assert.match(inject, /vite:beforeUpdate/);
+  assert.match(inject, /Fast Refresh/);
   assert.ok(target.split("\n").length < 500);
   assert.ok(targetContext.split("\n").length < 500);
+  assert.ok(targetReports.split("\n").length < 500);
   assert.ok(targetUi.split("\n").length < 500);
   assert.ok(background.split("\n").length < 500);
   assert.ok(evidence.split("\n").length < 500);
+  assert.ok(reactBridge.split("\n").length < 500);
+  assert.ok(inject.split("\n").length < 500);
 });
 
 test("pair injects the target and relays target events to the owning control", function () {
@@ -319,5 +361,45 @@ test("automatic report evidence combines a masked screenshot and diagnostics", f
   assert.strictEqual(captureArgs.pairing.pairingId, "pair-1");
   assert.strictEqual(response.screenshot.data, "bWFza2VkLXBuZw==");
   assert.strictEqual(response.diagnostics.console[0].text, "Boom");
+  assert.strictEqual(state.controlMessages.length, 0);
+});
+
+test("React component inspection stays extension-local and returns source context", function () {
+  var inspected = null;
+  var state = harness({
+    inspectComponent: function (pairing, payload, callback) {
+      inspected = { pairing: pairing, payload: payload };
+      callback({
+        ok: true,
+        component: {
+          framework: "react",
+          name: "Clock",
+          chain: ["Clock", "Dashboard", "App"],
+          source: { file: "src/components/Clock.tsx", line: 12, column: 3 },
+        },
+      });
+    },
+  });
+  var pairResult = null;
+  state.runtime.pair({
+    protocolVersion: 1,
+    pairingId: "pair-react",
+    targetTabId: 42,
+    allowedOrigin: "http://localhost:4242",
+    nonce: "nonce-react",
+  }, function (value) { pairResult = value; }, { clayTabId: 7 });
+  assert.deepStrictEqual(pairResult, { ok: true });
+  var response = null;
+  state.runtime.handleTargetMessage({
+    type: "live_ui_target_event",
+    pairingId: "pair-react",
+    event: "component.inspect",
+    payload: { selectors: ["#clock"] },
+  }, {
+    tab: { id: 42, url: "http://localhost:4242/dashboard" },
+  }, function (value) { response = value; });
+  assert.strictEqual(inspected.pairing.pairingId, "pair-react");
+  assert.deepStrictEqual(inspected.payload.selectors, ["#clock"]);
+  assert.strictEqual(response.component.name, "Clock");
   assert.strictEqual(state.controlMessages.length, 0);
 });

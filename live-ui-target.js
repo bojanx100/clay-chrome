@@ -2,6 +2,7 @@
   if (globalThis.__clayLiveUiTargetInstalled) return;
   globalThis.__clayLiveUiTargetInstalled = true;
 
+  var context = globalThis.ClayLiveUiTargetContext;
   var state = {
     pairingId: null,
     host: null,
@@ -9,19 +10,24 @@
     sequence: 0,
     selecting: false,
     selected: null,
+    selectedPacket: null,
     hovered: null,
     connected: false,
     submitting: false,
     pendingSubmission: null,
     pendingSelection: null,
     connectionTimer: null,
-    reports: {},
+    reportManager: null,
+    mutationObserver: null,
+    refreshFrame: null,
     projectLabel: "Clay project",
     sessionLabel: "New chat",
   };
+
   function nextMessageId(prefix) {
     return prefix + "-" + Date.now() + "-" + (++state.sequence);
   }
+
   function sendEvent(event, payload, clientMessageId, callback) {
     if (!state.pairingId) return;
     chrome.runtime.sendMessage({
@@ -36,68 +42,93 @@
       if (callback) callback(error ? { ok: false, error: error.message } : response);
     });
   }
-  function selectionPacket(element) {
-    return globalThis.ClayLiveUiTargetContext.selectionPacket(
-      element, state.documentGeneration);
-  }
-  function positionOutline(element, selected) {
-    if (!state.outline || !element) return;
+
+  function positionSelection(element, selected) {
+    if (!state.selectionOutline || !element) return;
     var rect = element.getBoundingClientRect();
-    state.outline.style.display = "block";
-    state.outline.style.transform = "translate(" + rect.x + "px," + rect.y + "px)";
-    state.outline.style.width = rect.width + "px";
-    state.outline.style.height = rect.height + "px";
-    state.outline.style.borderColor = selected ? "#d29a52" : "#4dae84";
+    state.selectionOutline.style.display = "block";
+    state.selectionOutline.style.transform =
+      "translate(" + rect.left + "px," + rect.top + "px)";
+    state.selectionOutline.style.width = rect.width + "px";
+    state.selectionOutline.style.height = rect.height + "px";
+    state.selectionOutline.style.borderColor = selected ? "#8fe388" : "#55a7ff";
   }
+
+  function componentTitle(packet) {
+    if (packet && packet.component && packet.component.name) {
+      return packet.component.name;
+    }
+    return String(packet && (packet.accessibleName || packet.text || packet.tag) ||
+      "Selected element").replace(/\s+/g, " ").trim().slice(0, 160);
+  }
+
   function setSelectionSummary(packet) {
     var selected = !!state.selected;
-    if (state.selectionSummary) state.selectionSummary.hidden = !selected;
-    if (state.selectionName) {
-      state.selectionName.textContent = selected ?
-        String(packet.accessibleName || packet.text || packet.tag || "Selected element")
-          .replace(/\s+/g, " ").trim().slice(0, 160) : "";
-    }
-    if (state.selectionTag) {
-      state.selectionTag.textContent = selected && packet.tag ? "<" + packet.tag + ">" : "";
-    }
-    if (state.selectButton && !state.selecting) {
-      state.selectButton.textContent = selected ? "Pick another" : "Pick element";
+    if (state.selectionCard) state.selectionCard.hidden = !selected;
+    if (!selected) return;
+    var component = packet.component;
+    state.selectionComponent.textContent = componentTitle(packet);
+    state.selectionSource.textContent = component && component.source ?
+      component.source.file + (component.source.line ? ":" + component.source.line : "") :
+      (component ? "Source location unavailable" : "DOM element · React component not found");
+    state.selectionElement.textContent =
+      "<" + packet.tag + ">" + (packet.accessibleName ?
+        " · “" + packet.accessibleName + "”" : "");
+    var chain = component && Array.isArray(component.chain) ?
+      component.chain.join(" › ") : "";
+    state.selectionChain.textContent = chain;
+    state.selectionChain.hidden = !chain;
+    for (var i = 0; i < state.selectButtons.length; i++) {
+      state.selectButtons[i].textContent =
+        state.selectButtons[i].getAttribute("aria-label") ? "⌖" : "Pick another";
     }
   }
+
   function clearSelection(notify) {
     state.selected = null;
+    state.selectedPacket = null;
     state.hovered = null;
-    if (state.outline) state.outline.style.display = "none";
-    setSelectionSummary({});
+    if (state.selectionOutline) state.selectionOutline.style.display = "none";
+    if (state.selectionCard) state.selectionCard.hidden = true;
+    if (state.selectButtons) {
+      for (var i = 0; i < state.selectButtons.length; i++) {
+        state.selectButtons[i].textContent =
+          state.selectButtons[i].getAttribute("aria-label") ? "⌖" : "Pick component";
+      }
+    }
     if (notify) sendEvent("selection.clear", null, nextMessageId("selection"));
   }
+
   function stopSelecting() {
     state.selecting = false;
     state.hovered = null;
     if (state.selectionShield) state.selectionShield.hidden = true;
-    if (state.selectButton) {
-      state.selectButton.textContent = state.selected ? "Pick another" : "Pick element";
-      state.selectButton.setAttribute("aria-pressed", "false");
+    if (state.selectButtons) {
+      for (var i = 0; i < state.selectButtons.length; i++) {
+        state.selectButtons[i].setAttribute("aria-pressed", "false");
+      }
     }
-    if (state.selected) positionOutline(state.selected, true);
-    else if (state.outline) state.outline.style.display = "none";
+    if (state.selected) positionSelection(state.selected, true);
+    else if (state.selectionOutline) state.selectionOutline.style.display = "none";
+    setSelectionSummary(state.selectedPacket || {});
   }
 
   function startSelecting() {
     state.selecting = true;
     state.hovered = null;
     state.selectionShield.hidden = false;
-    state.selectButton.textContent = "Cancel";
-    state.selectButton.setAttribute("aria-pressed", "true");
+    for (var i = 0; i < state.selectButtons.length; i++) {
+      state.selectButtons[i].textContent =
+        state.selectButtons[i].getAttribute("aria-label") ? "×" : "Cancel picking";
+      state.selectButtons[i].setAttribute("aria-pressed", "true");
+    }
   }
 
   function elementUnderShield(event) {
     state.selectionShield.style.pointerEvents = "none";
     var element = document.elementFromPoint(event.clientX, event.clientY);
     state.selectionShield.style.pointerEvents = "";
-    if (!element || element === state.host ||
-        (state.host && event.composedPath().indexOf(state.host) === -1 &&
-         state.host.contains && state.host.contains(element))) return null;
+    if (!element || element === state.host) return null;
     return element;
   }
 
@@ -106,7 +137,26 @@
     var element = elementUnderShield(event);
     if (!element) return;
     state.hovered = element;
-    positionOutline(element, false);
+    positionSelection(element, false);
+  }
+
+  function publishSelection(element, packet) {
+    if (state.selected !== element) return;
+    state.selectedPacket = packet;
+    setSelectionSummary(packet);
+    positionSelection(element, true);
+    sendEvent("selection.update", packet, nextMessageId("selection"));
+  }
+
+  function inspectSelection(element, packet) {
+    sendEvent("component.inspect", {
+      selectors: packet.selectors,
+    }, nextMessageId("component"), function (response) {
+      if (response && response.ok && response.component) {
+        packet.component = response.component;
+      }
+      publishSelection(element, packet);
+    });
   }
 
   function handleShieldClick(event) {
@@ -117,86 +167,43 @@
     var element = elementUnderShield(event) || state.hovered;
     if (!element) return;
     state.selected = element;
-    var packet = selectionPacket(element);
-    setSelectionSummary(packet);
-    positionOutline(element, true);
+    var packet = context.selectionPacket(element, state.documentGeneration);
+    state.selectedPacket = packet;
     stopSelecting();
-    sendEvent("selection.update", packet, nextMessageId("selection"));
-    openPanel();
+    setSelectionSummary(packet);
+    state.expand();
     state.input.focus();
+    inspectSelection(element, packet);
   }
 
-  function restoreSelection(packet) {
-    if (!packet || !Array.isArray(packet.selectors)) return;
-    var element = null;
-    for (var i = 0; i < packet.selectors.length; i++) {
-      try {
-        element = document.querySelector(packet.selectors[i]);
-      } catch (e) {
-        element = null;
-      }
-      if (element) break;
-    }
-    if (!element) return;
+  function restoreSelection(packet, notify) {
+    var element = context.resolveElement(packet);
+    if (!element) return false;
     state.selected = element;
-    var restored = selectionPacket(element);
-    setSelectionSummary(restored);
-    positionOutline(element, true);
-    sendEvent("selection.update", restored, nextMessageId("selection"));
+    state.selectedPacket = Object.assign(
+      context.selectionPacket(element, state.documentGeneration), {
+        component: packet.component || null,
+      });
+    setSelectionSummary(state.selectedPacket);
+    positionSelection(element, true);
+    if (notify) {
+      sendEvent("selection.update", state.selectedPacket, nextMessageId("selection"));
+    }
+    return true;
   }
 
-  function reportIcon(status) {
-    if (status === "completed") return "✓";
-    if (status === "needs_input") return "?";
-    if (status === "failed") return "!";
-    return "●";
-  }
-
-  function renderReports() {
-    if (!state.reportList) return;
-    var reports = Object.keys(state.reports).map(function (id) {
-      return state.reports[id];
+  function scheduleRefresh() {
+    if (state.refreshFrame) return;
+    state.refreshFrame = requestAnimationFrame(function () {
+      state.refreshFrame = null;
+      if (state.selectedPacket &&
+          (!state.selected || !state.selected.isConnected)) {
+        restoreSelection(state.selectedPacket, true);
+      } else if (state.selected) {
+        positionSelection(state.selected, true);
+      }
+      if (state.reportManager) state.reportManager.refreshHighlights();
     });
-    state.reportCount.textContent = String(reports.length);
-    state.reportList.innerHTML = "";
-    if (!reports.length) {
-      var empty = document.createElement("div");
-      empty.className = "reports-empty";
-      empty.textContent = "No reports yet.";
-      state.reportList.appendChild(empty);
-    }
-    var counts = { working: 0, needs_input: 0, completed: 0, failed: 0 };
-    for (var i = 0; i < reports.length; i++) {
-      var report = reports[i];
-      var status = counts[report.status] === undefined ? "working" : report.status;
-      counts[status]++;
-      var row = document.createElement("div");
-      row.className = "report " + status;
-      var icon = document.createElement("span");
-      icon.className = "report-icon";
-      icon.textContent = reportIcon(status);
-      var title = document.createElement("span");
-      title.className = "report-title";
-      title.textContent = report.title || "Live UI report";
-      var message = document.createElement("span");
-      message.className = "report-message";
-      message.textContent = report.message || "Being worked on.";
-      row.appendChild(icon);
-      row.appendChild(title);
-      row.appendChild(message);
-      state.reportList.appendChild(row);
-    }
-    var parts = [];
-    if (counts.working) parts.push(counts.working + " working");
-    if (counts.needs_input) parts.push(counts.needs_input + " need input");
-    if (counts.failed) parts.push(counts.failed + " failed");
-    if (counts.completed) parts.push(counts.completed + " done");
-    var aggregate = counts.needs_input ? "needs_input" :
-      (counts.failed ? "failed" : (counts.working ? "working" :
-        (counts.completed ? "completed" : "")));
-    state.aggregateDot.className = "aggregate-dot" + (aggregate ? " " + aggregate : "");
-    state.aggregateLabel.textContent = parts.length ? parts.join(" · ") :
-      (state.connected ? "Ready" : "Disconnected");
   }
 
   function setComposeError(message) {
@@ -220,22 +227,19 @@
     }
     state.connected = connected;
     if (state.connection) {
-      state.connection.textContent = connected ?
-        "Connected · each report gets its own worker" : "Disconnected from Clay";
       state.connection.classList.toggle("offline", !connected);
+      state.connection.title = connected ?
+        "Connected to " + state.sessionLabel : "Disconnected from Clay";
     }
     setSubmitting(state.submitting);
-    renderReports();
+    if (state.reportManager) state.reportManager.render();
   }
+
   function setConnectionError(message) {
     state.connected = false;
-    if (state.connection) {
-      state.connection.textContent = message || "Disconnected from Clay";
-      state.connection.classList.add("offline");
-    }
+    if (state.connection) state.connection.classList.add("offline");
     setComposeError(message || "Live UI is disconnected.");
     setSubmitting(false);
-    renderReports();
   }
 
   function waitForConnection() {
@@ -260,7 +264,7 @@
       sendEvent("evidence.capture", {
         documentGeneration: generation,
         viewport: viewport,
-        masks: globalThis.ClayLiveUiTargetContext.screenshotMasks(),
+        masks: context.screenshotMasks(),
       }, nextMessageId("evidence"), function (response) {
         if (state.host) state.host.style.visibility = "";
         var unchanged = generation === state.documentGeneration &&
@@ -291,10 +295,7 @@
         return;
       }
       var clientMessageId = nextMessageId("report");
-      state.pendingSubmission = {
-        clientMessageId: clientMessageId,
-        text: text,
-      };
+      state.pendingSubmission = { clientMessageId: clientMessageId };
       state.submitButton.textContent = "Sending…";
       sendEvent("report.submit", {
         text: text,
@@ -310,29 +311,21 @@
     });
   }
 
-  function openPanel() {
-    state.drawer.classList.add("open");
-    state.panelButton.setAttribute("aria-expanded", "true");
-    requestAnimationFrame(state.clampPosition);
+  function focusReport(report) {
+    if (!report || !report.locator) return;
+    restoreSelection(report.locator, true);
+    state.expand();
   }
 
   function handleReportEvent(envelope) {
     var payload = envelope.payload || {};
     if (envelope.event === "reports.snapshot") {
-      state.reports = {};
-      var reports = Array.isArray(payload.reports) ? payload.reports : [];
-      for (var i = 0; i < reports.length; i++) {
-        if (reports[i] && reports[i].reportId) {
-          state.reports[reports[i].reportId] = reports[i];
-        }
-      }
-      renderReports();
+      state.reportManager.replace(payload.reports);
       return;
     }
     if ((envelope.event === "report.accepted" ||
         envelope.event === "report.status") && payload.reportId) {
-      state.reports[payload.reportId] = payload;
-      renderReports();
+      state.reportManager.upsert(payload);
     }
     if (envelope.event === "report.accepted" && state.pendingSubmission) {
       state.pendingSubmission = null;
@@ -340,6 +333,31 @@
       clearSelection(true);
       setSubmitting(false);
       setComposeError("");
+    }
+  }
+
+  function bindOverlayEvents() {
+    for (var i = 0; i < state.selectButtons.length; i++) {
+      state.selectButtons[i].addEventListener("click", function () {
+        if (state.selecting) stopSelecting();
+        else startSelecting();
+      });
+    }
+    state.selectionShield.addEventListener("pointermove", handleShieldMove);
+    state.selectionShield.addEventListener("click", handleShieldClick);
+    state.clearButton.addEventListener("click", function () { clearSelection(true); });
+    state.submitButton.addEventListener("click", submitReport);
+    state.input.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        submitReport();
+      }
+    });
+    for (var j = 0; j < state.exitButtons.length; j++) {
+      state.exitButtons[j].addEventListener("click", function () {
+        sendEvent("target.closed", { reason: "user_exit" });
+        destroy();
+      });
     }
   }
 
@@ -351,68 +369,46 @@
       sessionLabel: state.sessionLabel,
     });
     Object.assign(state, ui);
-    state.selectButton.addEventListener("click", function () {
-      if (state.selecting) stopSelecting();
-      else startSelecting();
+    state.reportManager = globalThis.ClayLiveUiTargetReports.create({
+      aggregateDots: state.aggregateDots,
+      aggregateLabels: state.aggregateLabels,
+      highlightLayer: state.highlightLayer,
+      hmrState: state.hmrState,
+      isConnected: function () { return state.connected; },
+      onFocus: focusReport,
+      reportCount: state.reportCount,
+      reportList: state.reportList,
+      resolveElement: context.resolveElement,
     });
-    state.selectionShield.addEventListener("pointermove", handleShieldMove);
-    state.selectionShield.addEventListener("click", handleShieldClick);
-    state.clearButton.addEventListener("click", function () { clearSelection(true); });
-    state.panelButton.addEventListener("click", function () {
-      state.drawer.classList.toggle("open");
-      state.panelButton.setAttribute("aria-expanded",
-        state.drawer.classList.contains("open") ? "true" : "false");
-      requestAnimationFrame(state.clampPosition);
-      if (state.drawer.classList.contains("open")) state.input.focus();
+    bindOverlayEvents();
+    state.mutationObserver = new MutationObserver(scheduleRefresh);
+    state.mutationObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
     });
-    state.submitButton.addEventListener("click", submitReport);
-    state.input.addEventListener("keydown", function (event) {
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        submitReport();
-      }
-    });
-    state.exitButton.addEventListener("click", function () {
-      sendEvent("target.closed", { reason: "user_exit" });
-      destroy();
-    });
+    var initialHmr = document.documentElement.getAttribute("data-clay-live-ui-hmr");
+    if (initialHmr) state.reportManager.handleHmr(initialHmr, { engine: "vite" });
     setSubmitting(false);
-    renderReports();
   }
 
   function destroy() {
     if (state.connectionTimer) clearTimeout(state.connectionTimer);
+    if (state.refreshFrame) cancelAnimationFrame(state.refreshFrame);
+    if (state.mutationObserver) state.mutationObserver.disconnect();
     stopSelecting();
     clearSelection(false);
+    if (state.reportManager) state.reportManager.clear();
     if (state.host) state.host.remove();
     Object.assign(state, {
       pairingId: null,
       host: null,
-      shell: null,
-      selectionShield: null,
-      outline: null,
-      selectionSummary: null,
-      selectionName: null,
-      selectionTag: null,
-      clearButton: null,
-      selectButton: null,
-      panelButton: null,
-      aggregateDot: null,
-      aggregateLabel: null,
-      reportList: null,
-      reportCount: null,
-      composeError: null,
-      connection: null,
-      drawer: null,
-      input: null,
-      submitButton: null,
-      exitButton: null,
-      clampPosition: null,
       connected: false,
       submitting: false,
       pendingSubmission: null,
       connectionTimer: null,
-      reports: {},
+      reportManager: null,
+      mutationObserver: null,
+      refreshFrame: null,
     });
   }
 
@@ -422,12 +418,13 @@
       stopSelecting();
     }
   }, true);
-  window.addEventListener("scroll", function () {
-    if (state.selected) positionOutline(state.selected, true);
-  }, true);
-  window.addEventListener("resize", function () {
-    if (state.selected) positionOutline(state.selected, true);
-    if (state.clampPosition) state.clampPosition();
+  window.addEventListener("scroll", scheduleRefresh, true);
+  window.addEventListener("resize", scheduleRefresh);
+  window.addEventListener("message", function (event) {
+    if (event.source !== window || !event.data ||
+        event.data.source !== "clay-live-ui-hmr" || !state.reportManager) return;
+    state.reportManager.handleHmr(event.data.status, event.data.payload || {});
+    scheduleRefresh();
   });
 
   chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
@@ -461,7 +458,8 @@
       sendResponse({ ok: true });
       return;
     }
-    if (message.type === "live_ui_destroy" && message.pairingId === state.pairingId) {
+    if (message.type === "live_ui_destroy" &&
+        message.pairingId === state.pairingId) {
       destroy();
       sendResponse({ ok: true });
       return;
@@ -474,7 +472,7 @@
         if (state.pendingSelection) {
           var pending = state.pendingSelection;
           state.pendingSelection = null;
-          restoreSelection(pending);
+          restoreSelection(pending, true);
         }
       }
       if (message.envelope.type === "live_ui_relay") {
@@ -482,7 +480,8 @@
       }
       if (message.envelope.type === "live_ui_state" &&
           message.envelope.state === "error") {
-        var errorText = message.envelope.error || "Live UI could not complete the request.";
+        var errorText = message.envelope.error ||
+          "Live UI could not complete the request.";
         if (message.envelope.code === "LIVE_UI_EXTENSION_OFFLINE") {
           setConnectionError(errorText);
         } else {

@@ -3,9 +3,102 @@
 // Runs in MAIN world (page context) so it can intercept console and fetch.
 
 (function () {
+  function emitHmr(status, payload) {
+    document.documentElement.setAttribute("data-clay-live-ui-hmr", status);
+    window.postMessage({
+      source: "clay-live-ui-hmr",
+      status: status,
+      payload: payload || null,
+      at: Date.now()
+    }, location.origin);
+  }
+
+  function hmrFiles(payload) {
+    var updates = payload && Array.isArray(payload.updates) ? payload.updates : [];
+    var files = [];
+    for (var i = 0; i < updates.length && files.length < 30; i++) {
+      var path = updates[i] && (updates[i].path || updates[i].acceptedPath);
+      if (path && files.indexOf(path) === -1) files.push(String(path).slice(0, 700));
+    }
+    return files;
+  }
+
+  function installHmrBridge() {
+    if (window.__clay_hmr_bridge_installed) return;
+    var viteDetected = !!window.__vite_plugin_react_preamble_installed__;
+    if (!viteDetected) {
+      var scripts = document.scripts || [];
+      for (var i = 0; i < scripts.length; i++) {
+        if (String(scripts[i].src || "").indexOf("/@vite/client") !== -1) {
+          viteDetected = true;
+          break;
+        }
+      }
+    }
+    if (!viteDetected && window.performance && performance.getEntriesByType) {
+      var resources = performance.getEntriesByType("resource");
+      for (var j = 0; j < resources.length; j++) {
+        if (String(resources[j].name || "").indexOf("/@vite/client") !== -1) {
+          viteDetected = true;
+          break;
+        }
+      }
+    }
+    if (!viteDetected) return;
+    window.__clay_hmr_bridge_installed = true;
+    import("/@vite/client").then(function (viteClient) {
+      if (!viteClient || typeof viteClient.createHotContext !== "function") {
+        emitHmr("unavailable", { engine: "vite" });
+        return;
+      }
+      var hot = viteClient.createHotContext("/__clay_live_ui_hmr__");
+      hot.on("vite:beforeUpdate", function (payload) {
+        emitHmr("applying", { engine: "vite", files: hmrFiles(payload) });
+      });
+      hot.on("vite:afterUpdate", function (payload) {
+        emitHmr("applied", { engine: "vite", files: hmrFiles(payload) });
+      });
+      hot.on("vite:beforeFullReload", function () {
+        emitHmr("reload", {
+          engine: "vite",
+          message: "This edit crossed a Fast Refresh boundary."
+        });
+      });
+      hot.on("vite:invalidate", function (payload) {
+        emitHmr("reload", {
+          engine: "vite",
+          message: payload && payload.message ?
+            String(payload.message).slice(0, 500) : "A module invalidated its refresh boundary."
+        });
+      });
+      hot.on("vite:error", function (payload) {
+        var error = payload && payload.err ? payload.err : payload;
+        emitHmr("error", {
+          engine: "vite",
+          message: error && error.message ?
+            String(error.message).slice(0, 700) : "Fast Refresh failed."
+        });
+      });
+      hot.on("vite:ws:disconnect", function () {
+        emitHmr("disconnected", { engine: "vite" });
+      });
+      hot.on("vite:ws:connect", function () {
+        emitHmr("ready", { engine: "vite" });
+      });
+      emitHmr("ready", { engine: "vite" });
+    }).catch(function () {
+      window.__clay_hmr_bridge_installed = false;
+      emitHmr("unavailable", { engine: "vite" });
+    });
+  }
+
   // Guard against double injection
-  if (window.__clay_injected) return;
+  if (window.__clay_injected) {
+    installHmrBridge();
+    return;
+  }
   window.__clay_injected = true;
+  installHmrBridge();
 
   // --- Console capture ---
   var CONSOLE_BUFFER_MAX = 200;
@@ -27,6 +120,16 @@
       } catch (e) {
         text += String(args[i]);
       }
+    }
+    if (/\[Fast Refresh\]\s*rebuilding/i.test(text)) {
+      emitHmr("applying", { engine: "next", files: [] });
+    } else if (/\[Fast Refresh\]\s*done/i.test(text)) {
+      emitHmr("applied", { engine: "next", files: [] });
+    } else if (/Fast Refresh had to perform a full reload/i.test(text)) {
+      emitHmr("reload", {
+        engine: "next",
+        message: "This edit crossed a Fast Refresh boundary."
+      });
     }
     window.__clay_console_buffer.push({
       level: level,

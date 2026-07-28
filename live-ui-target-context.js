@@ -57,7 +57,20 @@
         height: rect.height,
       },
       selectors: selectorCandidates(element),
+      component: null,
     };
+  }
+
+  function resolveElement(locator) {
+    var selectors = locator && Array.isArray(locator.selectors) ?
+      locator.selectors : [];
+    for (var i = 0; i < selectors.length; i++) {
+      try {
+        var element = document.querySelector(selectors[i]);
+        if (element) return element;
+      } catch (e) {}
+    }
+    return null;
   }
 
   function screenshotMasks() {
@@ -81,6 +94,7 @@
   }
 
   root.ClayLiveUiTargetContext = {
+    resolveElement: resolveElement,
     selectionPacket: selectionPacket,
     screenshotMasks: screenshotMasks,
   };

@@ -2,6 +2,10 @@
   var STORAGE_KEY = "clayLiveUiPairingsV1";
   var evidence = root.ClayLiveUiEvidence;
   if (!evidence && typeof require === "function") evidence = require("./live-ui-evidence");
+  var reactBridge = root.ClayLiveUiReactBackground;
+  if (!reactBridge && typeof require === "function") {
+    reactBridge = require("./live-ui-react-background");
+  }
   function originOf(url) {
     try {
       var parsed = new URL(url);
@@ -29,6 +33,9 @@
           });
         });
       });
+    };
+    var inspectComponent = options.inspectComponent || function (pairing, payload, callback) {
+      reactBridge.inspectReactComponent(chromeApi, pairing, payload, callback);
     };
     var pairings = {};
     function save() {
@@ -89,8 +96,8 @@
         if (error) return callback({ ok: false, error: error.message });
         chromeApi.scripting.executeScript({
           target: { tabId: pairing.targetTabId },
-          files: ["live-ui-target-context.js", "live-ui-target-ui.js",
-            "live-ui-target.js"],
+          files: ["live-ui-target-context.js", "live-ui-target-reports.js",
+            "live-ui-target-ui.js", "live-ui-target.js"],
         }, function () {
           var targetError = chromeApi.runtime.lastError;
           if (targetError) return callback({ ok: false, error: targetError.message });
@@ -249,6 +256,19 @@
           } : {
             ok: false,
             error: result && result.error ? result.error : "Evidence capture failed",
+          });
+        });
+        return true;
+      }
+      if (message.event === "component.inspect") {
+        inspectComponent(pairing, message.payload, function (result) {
+          sendResponse(result && result.ok ? {
+            ok: true,
+            component: result.component || null,
+          } : {
+            ok: false,
+            error: result && result.error ?
+              result.error : "React component inspection failed",
           });
         });
         return true;
