@@ -128,6 +128,81 @@ test("picker keeps a connected Clay tab visible when no chats exist", function (
   assert.deepStrictEqual(response.controls[0].projects, []);
 });
 
+test("picker keeps projects visible before their chats are loaded", function () {
+  var state = harness();
+  state.picker.handlePortMessage(7, {
+    type: "clay_live_ui_identity",
+    identity: {
+      serverOrigin: "http://100.100.10.20:2633",
+      currentProjectSlug: "clay",
+      projectSlug: "clay",
+      projectLabel: "Clay",
+      projects: [{
+        projectSlug: "webapp",
+        projectLabel: "Webapp",
+        sessionsLoaded: false,
+      }],
+    },
+  });
+  var response = null;
+  state.picker.handlePopupMessage({
+    type: "live_ui_picker_get_state",
+  }, function (value) { response = value; });
+  assert.strictEqual(response.controls[0].projects.length, 1);
+  assert.strictEqual(response.controls[0].projects[0].sessionsLoaded, false);
+});
+
+test("picker requests chats for only the selected project", function () {
+  var state = harness();
+  state.picker.handlePortMessage(7, {
+    type: "clay_live_ui_identity",
+    identity: {
+      serverOrigin: "http://100.100.10.20:2633",
+      currentProjectSlug: "clay",
+      projectSlug: "clay",
+      projectLabel: "Clay",
+      projects: [{
+        projectSlug: "webapp",
+        projectLabel: "Webapp",
+        sessionsLoaded: false,
+      }],
+    },
+  });
+  var response = null;
+  state.picker.handlePopupMessage({
+    type: "live_ui_picker_load_project",
+    controlTabId: 7,
+    projectSlug: "webapp",
+  }, function (value) { response = value; });
+  assert.deepStrictEqual(response, { ok: true });
+  assert.ok(state.portMessages.some(function (message) {
+      return message.type === "clay_live_ui_project_sessions_request" &&
+      message.projectSlug === "webapp";
+  }));
+
+  state.picker.handlePortMessage(7, {
+    type: "clay_live_ui_project_sessions",
+    projectSlug: "webapp",
+    sessions: [{ id: 21, title: "Booking page" }],
+  });
+  state.picker.handlePopupMessage({
+    type: "live_ui_picker_get_state",
+  }, function (value) { response = value; });
+  assert.strictEqual(response.controls[0].projects[0].sessionsLoaded, true);
+  assert.strictEqual(response.controls[0].projects[0].sessions[0].title, "Booking page");
+});
+
+test("picker does not connect a normal localhost app as Clay", function () {
+  var state = harness();
+  var response = null;
+  state.picker.handlePopupMessage({
+    type: "live_ui_picker_connect_current",
+  }, function (value) { response = value; });
+  assert.strictEqual(response.ok, false);
+  assert.match(response.error, /Open Clay/);
+  assert.deepStrictEqual(state.scriptCalls, []);
+});
+
 test("picker pins the active web tab to an explicitly selected session", function () {
   var state = harness();
   var response = null;
@@ -239,6 +314,7 @@ test("picker implementation stays bounded and avoids credential storage", functi
   assert.ok(popup.split("\n").length < 500);
   assert.ok(html.indexOf("liveUiProjectSelect") < html.indexOf("liveUiSessionSelect"));
   assert.match(popup, /projectSlug: selected\.projectSlug/);
+  assert.match(popup, /live_ui_picker_load_project/);
   assert.match(background, /liveUiPicker\.handleTabUpdated/);
   assert.doesNotMatch(source, /storage\.local/);
   assert.doesNotMatch(popup, /localStorage/);
