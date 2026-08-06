@@ -5,6 +5,7 @@ var liveUiSetup = document.getElementById("liveUiSetup");
 var liveUiActive = document.getElementById("liveUiActive");
 var liveUiActiveSession = document.getElementById("liveUiActiveSession");
 var liveUiActiveProject = document.getElementById("liveUiActiveProject");
+var liveUiProjectSelect = document.getElementById("liveUiProjectSelect");
 var liveUiSessionSelect = document.getElementById("liveUiSessionSelect");
 var liveUiStartBtn = document.getElementById("liveUiStartBtn");
 var liveUiConnectBtn = document.getElementById("liveUiConnectBtn");
@@ -12,6 +13,7 @@ var liveUiExitBtn = document.getElementById("liveUiExitBtn");
 var liveUiHint = document.getElementById("liveUiHint");
 var liveUiStatus = document.getElementById("liveUiStatus");
 var liveUiOptions = [];
+var liveUiProjects = [];
 var liveUiState = null;
 var liveUiPoll = null;
 
@@ -31,34 +33,159 @@ function activePairing(state) {
   return null;
 }
 
-function renderLiveUiOptions(controls) {
-  var previous = liveUiSessionSelect.value;
-  liveUiSessionSelect.innerHTML = "";
-  liveUiOptions = [];
+function collectLiveUiProjects(controls) {
+  var byKey = {};
   for (var ci = 0; ci < controls.length; ci++) {
     var control = controls[ci];
-    var group = document.createElement("optgroup");
-    group.label = control.projectLabel + " · " + control.serverOrigin;
-    var sessions = (control.sessions || []).slice().sort(function (a, b) {
-      if (a.active !== b.active) return a.active ? -1 : 1;
-      return String(a.title).localeCompare(String(b.title));
-    });
-    for (var si = 0; si < sessions.length; si++) {
-      var optionData = {
+    var projects = control.projects || [];
+    for (var pi = 0; pi < projects.length; pi++) {
+      var project = projects[pi];
+      var key = control.serverOrigin + "|" + project.projectSlug;
+      var candidate = {
+        key: key,
         controlTabId: control.controlTabId,
-        sessionId: sessions[si].id,
+        serverOrigin: control.serverOrigin,
+        projectSlug: project.projectSlug,
+        projectLabel: project.projectLabel || project.projectSlug,
+        sessions: project.sessions || [],
+        current: control.currentProjectSlug === project.projectSlug,
       };
-      var option = document.createElement("option");
-      option.value = String(liveUiOptions.length);
-      option.textContent = (sessions[si].active ? "Current · " : "") +
-        sessions[si].title + (sessions[si].isProcessing ? " · working" : "");
-      liveUiOptions.push(optionData);
-      group.appendChild(option);
+      if (!byKey[key] || (!byKey[key].current && candidate.current)) {
+        byKey[key] = candidate;
+      }
     }
-    if (group.children.length) liveUiSessionSelect.appendChild(group);
   }
-  if (previous && liveUiOptions[Number(previous)]) {
-    liveUiSessionSelect.value = previous;
+  var result = Object.keys(byKey).map(function (key) { return byKey[key]; });
+  result.sort(function (a, b) {
+    return String(a.projectLabel).localeCompare(String(b.projectLabel));
+  });
+  return result;
+}
+
+function renderSessionOptions(project, previousSessionId) {
+  liveUiSessionSelect.innerHTML = "";
+  liveUiOptions = [];
+  if (!project) return;
+  var sessions = project.sessions.slice().sort(function (a, b) {
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    return String(a.title).localeCompare(String(b.title));
+  });
+  for (var si = 0; si < sessions.length; si++) {
+    var optionData = {
+      controlTabId: project.controlTabId,
+      projectSlug: project.projectSlug,
+      sessionId: sessions[si].id,
+    };
+    var option = document.createElement("option");
+    option.value = String(liveUiOptions.length);
+    option.textContent = (sessions[si].active ? "Current · " : "") +
+      (sessions[si].coordinationMode ? "Coordinator · " : "") +
+      sessions[si].title + (sessions[si].isProcessing ? " · working" : "");
+    liveUiOptions.push(optionData);
+    liveUiSessionSelect.appendChild(option);
+    if (previousSessionId !== null &&
+        String(previousSessionId) === String(sessions[si].id)) {
+      liveUiSessionSelect.value = option.value;
+    }
+  }
+}
+
+function renderLiveUiOptions(controls) {
+  var previousProject = liveUiProjects[Number(liveUiProjectSelect.value)] || null;
+  var previousSession = liveUiOptions[Number(liveUiSessionSelect.value)] || null;
+  var previousKey = previousProject ? previousProject.key : null;
+  var previousSessionId = previousSession ? previousSession.sessionId : null;
+  liveUiProjects = collectLiveUiProjects(controls);
+  liveUiProjectSelect.innerHTML = "";
+  var selectedProjectIndex = 0;
+  for (var pi = 0; pi < liveUiProjects.length; pi++) {
+    var project = liveUiProjects[pi];
+    var option = document.createElement("option");
+    option.value = String(pi);
+    option.textContent = project.projectLabel;
+    liveUiProjectSelect.appendChild(option);
+    if (project.key === previousKey) selectedProjectIndex = pi;
+  }
+  liveUiProjectSelect.value = String(selectedProjectIndex);
+  renderSessionOptions(liveUiProjects[selectedProjectIndex], previousSessionId);
+}
+
+function renderActivePairing(pairing) {
+  liveUiBadge.textContent = "Live";
+  liveUiBadge.className = "live-ui-badge active";
+  liveUiSetup.classList.add("hidden");
+  liveUiActive.classList.remove("hidden");
+  liveUiActiveSession.textContent = pairing.sessionLabel || "New chat";
+  liveUiActiveProject.textContent =
+    (pairing.projectLabel || pairing.projectSlug || "Clay project") +
+    " · messages stay pinned here until Exit";
+  setLiveUiStatus("");
+}
+
+function activeTabIsClay(activeTab, controls) {
+  for (var i = 0; i < controls.length; i++) {
+    if (activeTab && Number(controls[i].controlTabId) === Number(activeTab.id)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function renderConnectedSetup(activeTab, controls) {
+  liveUiBadge.textContent = controls.length + " Clay tab" +
+    (controls.length === 1 ? "" : "s");
+  liveUiBadge.className = "live-ui-badge connected";
+  liveUiProjectSelect.disabled = liveUiProjects.length === 0;
+  liveUiSessionSelect.disabled = liveUiOptions.length === 0;
+  liveUiStartBtn.disabled = !activeTab || liveUiOptions.length === 0;
+  liveUiConnectBtn.classList.add("hidden");
+  if (!liveUiProjects.length) {
+    liveUiHint.textContent = "No projects have available top-level chats.";
+  } else {
+    liveUiHint.textContent = liveUiOptions.length
+      ? "Choose a project, then a top-level chat. Clay opens it and keeps this tab pinned."
+      : "The selected project has no available top-level chats.";
+  }
+}
+
+function renderSetupState(activeTab, controls) {
+  if (activeTabIsClay(activeTab, controls)) {
+    liveUiBadge.textContent = "Connected";
+    liveUiBadge.className = "live-ui-badge connected";
+    liveUiProjectSelect.disabled = true;
+    liveUiSessionSelect.disabled = true;
+    liveUiStartBtn.disabled = true;
+    liveUiConnectBtn.classList.add("hidden");
+    liveUiHint.textContent =
+      "Clay is connected. Open the web app tab, then click the extension again.";
+    return;
+  }
+  if (!controls.length) {
+    liveUiBadge.textContent = "Needs Clay";
+    liveUiBadge.className = "live-ui-badge";
+    liveUiProjectSelect.disabled = true;
+    liveUiSessionSelect.disabled = true;
+    liveUiStartBtn.disabled = true;
+    liveUiConnectBtn.classList.remove("hidden");
+    liveUiHint.textContent =
+      "On this laptop, open Clay in a tab and click “Connect this tab as Clay” once.";
+    return;
+  }
+  renderConnectedSetup(activeTab, controls);
+}
+
+function renderPickerStatus(pickerStatus) {
+  if (!pickerStatus) return;
+  if (pickerStatus.state === "error") {
+    setLiveUiStatus(pickerStatus.error || "Live UI could not start.", "error");
+    return;
+  }
+  if (pickerStatus.state === "switching_project") {
+    setLiveUiStatus("Opening the selected project in Clay…");
+    return;
+  }
+  if (pickerStatus.state === "requesting" || pickerStatus.state === "pairing") {
+    setLiveUiStatus("Connecting the tab to Clay…");
   }
 }
 
@@ -70,65 +197,16 @@ function renderLiveUi(state) {
 
   var pairing = activePairing(state);
   if (pairing) {
-    liveUiBadge.textContent = "Live";
-    liveUiBadge.className = "live-ui-badge active";
-    liveUiSetup.classList.add("hidden");
-    liveUiActive.classList.remove("hidden");
-    liveUiActiveSession.textContent = pairing.sessionLabel || "New chat";
-    liveUiActiveProject.textContent =
-      (pairing.projectLabel || pairing.projectSlug || "Clay project") +
-      " · messages stay pinned here until Exit";
-    setLiveUiStatus("");
+    renderActivePairing(pairing);
     return;
   }
 
   liveUiActive.classList.add("hidden");
   liveUiSetup.classList.remove("hidden");
   var controls = state.controls || [];
-  var activeIsClay = false;
-  for (var i = 0; i < controls.length; i++) {
-    if (activeTab && Number(controls[i].controlTabId) === Number(activeTab.id)) {
-      activeIsClay = true;
-      break;
-    }
-  }
   renderLiveUiOptions(controls);
-
-  if (activeIsClay) {
-    liveUiBadge.textContent = "Connected";
-    liveUiBadge.className = "live-ui-badge connected";
-    liveUiSessionSelect.disabled = true;
-    liveUiStartBtn.disabled = true;
-    liveUiConnectBtn.classList.add("hidden");
-    liveUiHint.textContent =
-      "Clay is connected. Open the web app tab, then click the extension again.";
-  } else if (!controls.length) {
-    liveUiBadge.textContent = "Needs Clay";
-    liveUiBadge.className = "live-ui-badge";
-    liveUiSessionSelect.disabled = true;
-    liveUiStartBtn.disabled = true;
-    liveUiConnectBtn.classList.remove("hidden");
-    liveUiHint.textContent =
-      "On this laptop, open Clay in a tab and click “Connect this tab as Clay” once.";
-  } else {
-    liveUiBadge.textContent = controls.length + " Clay tab" +
-      (controls.length === 1 ? "" : "s");
-    liveUiBadge.className = "live-ui-badge connected";
-    liveUiSessionSelect.disabled = liveUiOptions.length === 0;
-    liveUiStartBtn.disabled = !activeTab || liveUiOptions.length === 0;
-    liveUiConnectBtn.classList.add("hidden");
-    liveUiHint.textContent = liveUiOptions.length
-      ? "Clay opens the selected chat and keeps this web app tab pinned to it."
-      : "The connected Clay project has no available chats.";
-  }
-
-  var pickerStatus = state.status;
-  if (pickerStatus && pickerStatus.state === "error") {
-    setLiveUiStatus(pickerStatus.error || "Live UI could not start.", "error");
-  } else if (pickerStatus && (pickerStatus.state === "requesting" ||
-      pickerStatus.state === "pairing")) {
-    setLiveUiStatus("Connecting the tab to Clay…");
-  }
+  renderSetupState(activeTab, controls);
+  renderPickerStatus(state.status);
 }
 
 function loadLiveUiState() {
@@ -141,6 +219,14 @@ function loadLiveUiState() {
   });
 }
 
+liveUiProjectSelect.addEventListener("change", function () {
+  var project = liveUiProjects[Number(liveUiProjectSelect.value)] || null;
+  renderSessionOptions(project, null);
+  liveUiSessionSelect.disabled = liveUiOptions.length === 0;
+  liveUiStartBtn.disabled = !liveUiState || !liveUiState.activeTab ||
+    liveUiOptions.length === 0;
+});
+
 liveUiStartBtn.addEventListener("click", function () {
   var selected = liveUiOptions[Number(liveUiSessionSelect.value)];
   if (!selected) return;
@@ -149,6 +235,7 @@ liveUiStartBtn.addEventListener("click", function () {
   chrome.runtime.sendMessage({
     type: "live_ui_picker_pair",
     controlTabId: selected.controlTabId,
+    projectSlug: selected.projectSlug,
     sessionId: selected.sessionId,
   }, function (response) {
     if (chrome.runtime.lastError || !response || !response.ok) {

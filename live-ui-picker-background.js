@@ -9,27 +9,73 @@
     }
   }
 
-  function safeIdentity(value) {
-    if (!value || !safeOrigin(value.serverOrigin) ||
-        !/^[a-z0-9_-]+$/.test(String(value.projectSlug || ""))) return null;
+  function safeSession(value) {
+    var session = value || {};
+    if (session.id === undefined || session.id === null ||
+        String(session.id).length > 200) return null;
+    return {
+      id: session.id,
+      title: String(session.title || "New chat").slice(0, 160),
+      active: !!session.active,
+      isProcessing: !!session.isProcessing,
+      coordinationMode: !!session.coordinationMode,
+    };
+  }
+
+  function safeProject(value, remainingSessions) {
+    var project = value || {};
+    var projectSlug = String(project.projectSlug || "");
+    if (!/^[a-z0-9_-]+$/.test(projectSlug)) return null;
+    var inputSessions = Array.isArray(project.sessions) ? project.sessions : [];
     var sessions = [];
-    var inputSessions = Array.isArray(value.sessions) ? value.sessions : [];
-    for (var i = 0; i < inputSessions.length && sessions.length < 500; i++) {
-      var session = inputSessions[i] || {};
-      if (session.id === undefined || session.id === null ||
-          String(session.id).length > 200) continue;
-      sessions.push({
-        id: session.id,
-        title: String(session.title || "New chat").slice(0, 160),
-        active: !!session.active,
-        isProcessing: !!session.isProcessing,
-      });
+    for (var si = 0; si < inputSessions.length &&
+        sessions.length < remainingSessions; si++) {
+      var session = safeSession(inputSessions[si]);
+      if (session) sessions.push(session);
     }
+    if (!sessions.length) return null;
+    return {
+      projectSlug: projectSlug,
+      projectLabel: String(
+        project.projectLabel || project.projectTitle || projectSlug).slice(0, 160),
+      sessions: sessions,
+    };
+  }
+
+  function projectBySlug(projects, slug) {
+    for (var i = 0; i < projects.length; i++) {
+      if (projects[i].projectSlug === slug) return projects[i];
+    }
+    return null;
+  }
+
+  function safeIdentity(value) {
+    if (!value || !safeOrigin(value.serverOrigin)) return null;
+    var currentProjectSlug = String(
+      value.currentProjectSlug || value.projectSlug || "");
+    if (!/^[a-z0-9_-]+$/.test(currentProjectSlug)) return null;
+    var inputProjects = Array.isArray(value.projects) ? value.projects : [{
+      projectSlug: currentProjectSlug,
+      projectLabel: value.projectLabel,
+      sessions: value.sessions,
+    }];
+    var projects = [];
+    var totalSessions = 0;
+    for (var pi = 0; pi < inputProjects.length && projects.length < 100; pi++) {
+      var project = safeProject(inputProjects[pi], 500 - totalSessions);
+      if (!project) continue;
+      projects.push(project);
+      totalSessions += project.sessions.length;
+      if (totalSessions >= 500) break;
+    }
+    var currentProject = projectBySlug(projects, currentProjectSlug);
     return {
       serverOrigin: safeOrigin(value.serverOrigin),
-      projectSlug: String(value.projectSlug),
-      projectLabel: String(value.projectLabel || value.projectSlug).slice(0, 160),
-      sessions: sessions,
+      currentProjectSlug: currentProjectSlug,
+      projectSlug: currentProjectSlug,
+      projectLabel: String(value.projectLabel || currentProjectSlug).slice(0, 160),
+      sessions: currentProject ? currentProject.sessions : [],
+      projects: projects,
     };
   }
 
@@ -45,8 +91,71 @@
 
   function createPicker(chromeApi, runtime, getPort, getPortIds) {
     var identities = {};
+    var pendingPairs = {};
     var status = null;
     var counter = 0;
+
+    function findSelection(identity, projectSlug, sessionId) {
+      var projects = identity.projects || [];
+      for (var pi = 0; pi < projects.length; pi++) {
+        if (projects[pi].projectSlug !== projectSlug) continue;
+        for (var si = 0; si < projects[pi].sessions.length; si++) {
+          if (String(projects[pi].sessions[si].id) === String(sessionId)) {
+            return projects[pi].sessions[si];
+          }
+        }
+      }
+      return null;
+    }
+
+    function clearPending(tabId) {
+      var pending = pendingPairs[tabId];
+      if (pending && pending.timer) clearTimeout(pending.timer);
+      delete pendingPairs[tabId];
+    }
+
+    function failPending(tabId, error) {
+      var pending = pendingPairs[tabId];
+      if (!pending) return;
+      status = {
+        requestId: pending.requestId,
+        pairingId: null,
+        state: "error",
+        error: error,
+      };
+      clearPending(tabId);
+    }
+
+    function postPairRequest(tabId, pending, identity) {
+      var port = getPort(tabId);
+      var selected = findSelection(
+        identity, pending.projectSlug, pending.sessionId);
+      if (!port || identity.currentProjectSlug !== pending.projectSlug || !selected) {
+        return false;
+      }
+      status = {
+        requestId: pending.requestId,
+        pairingId: null,
+        state: "requesting",
+        error: null,
+      };
+      try {
+        port.postMessage({
+          type: "clay_live_ui_picker_pair_request",
+          requestId: pending.requestId,
+          projectSlug: pending.projectSlug,
+          sessionId: selected.id,
+          targetTabId: pending.targetTabId,
+          tabs: pending.tabs,
+          extensionId: chromeApi.runtime.id,
+        });
+      } catch (error) {
+        failPending(tabId, "The selected Clay tab disconnected.");
+        return false;
+      }
+      clearPending(tabId);
+      return true;
+    }
 
     function requestIdentity(tabId) {
       var port = getPort(tabId);
@@ -71,7 +180,12 @@
       if (!message) return false;
       if (message.type === "clay_live_ui_identity") {
         var identity = safeIdentity(message.identity);
-        if (identity) identities[tabId] = identity;
+        if (identity) {
+          identities[tabId] = identity;
+          if (pendingPairs[tabId]) {
+            postPairRequest(tabId, pendingPairs[tabId], identity);
+          }
+        }
         return true;
       }
       if (message.type === "clay_live_ui_picker_state") {
@@ -84,6 +198,25 @@
         return true;
       }
       return false;
+    }
+
+    function handleTabUpdated(tabId, changeInfo, tab) {
+      var pending = pendingPairs[tabId];
+      if (!pending || changeInfo.status !== "complete") return;
+      var expected = pending.serverOrigin + "/p/" +
+        encodeURIComponent(pending.projectSlug) + "/";
+      if (!tab || String(tab.url || "").indexOf(expected) !== 0) return;
+      if (getPort(tabId)) {
+        requestIdentity(tabId);
+        return;
+      }
+      chromeApi.scripting.executeScript({
+        target: { tabId: tabId },
+        files: ["content.js"],
+      }, function () {
+        var error = chromeApi.runtime.lastError;
+        if (error) failPending(tabId, "Clay could not reconnect after changing projects.");
+      });
     }
 
     function controls() {
@@ -119,13 +252,8 @@
         sendResponse({ ok: false, error: "The selected Clay tab is disconnected." });
         return;
       }
-      var selected = null;
-      for (var i = 0; i < identity.sessions.length; i++) {
-        if (String(identity.sessions[i].id) === String(message.sessionId)) {
-          selected = identity.sessions[i];
-          break;
-        }
-      }
+      var projectSlug = String(message.projectSlug || identity.currentProjectSlug || "");
+      var selected = findSelection(identity, projectSlug, message.sessionId);
       if (!selected) {
         sendResponse({ ok: false, error: "The selected session is no longer available." });
         return;
@@ -147,28 +275,46 @@
             var tab = publicTab(tabs[ti]);
             if (tab && tab.id !== controlTabId) publicTabs.push(tab);
           }
+          var pending = {
+            requestId: requestId,
+            controlTabId: controlTabId,
+            serverOrigin: identity.serverOrigin,
+            projectSlug: projectSlug,
+            sessionId: selected.id,
+            targetTabId: target.id,
+            tabs: publicTabs,
+            timer: null,
+          };
+          clearPending(controlTabId);
+          pendingPairs[controlTabId] = pending;
+          pending.timer = setTimeout(function () {
+            failPending(controlTabId, "Clay did not finish opening the selected project.");
+          }, 20000);
+          if (identity.currentProjectSlug === projectSlug) {
+            if (!postPairRequest(controlTabId, pending, identity)) {
+              sendResponse({ ok: false, error: status.error });
+              return;
+            }
+            sendResponse({ ok: true, requestId: requestId });
+            return;
+          }
           status = {
             requestId: requestId,
             pairingId: null,
-            state: "requesting",
+            state: "switching_project",
             error: null,
           };
-          try {
-            port.postMessage({
-              type: "clay_live_ui_picker_pair_request",
-              requestId: requestId,
-              sessionId: selected.id,
-              targetTabId: target.id,
-              tabs: publicTabs,
-              extensionId: chromeApi.runtime.id,
-            });
-          } catch (error) {
-            status.state = "error";
-            status.error = "The selected Clay tab disconnected.";
-            sendResponse({ ok: false, error: status.error });
-            return;
-          }
-          sendResponse({ ok: true, requestId: requestId });
+          chromeApi.tabs.update(controlTabId, {
+            url: identity.serverOrigin + "/p/" + encodeURIComponent(projectSlug) + "/",
+          }, function () {
+            var updateError = chromeApi.runtime.lastError;
+            if (updateError) {
+              failPending(controlTabId, "Clay could not open the selected project.");
+              sendResponse({ ok: false, error: status.error });
+              return;
+            }
+            sendResponse({ ok: true, requestId: requestId });
+          });
         });
       });
     }
@@ -227,6 +373,7 @@
       handlePortConnected: handlePortConnected,
       handlePortDisconnected: handlePortDisconnected,
       handlePortMessage: handlePortMessage,
+      handleTabUpdated: handleTabUpdated,
       handlePopupMessage: handlePopupMessage,
     };
   }

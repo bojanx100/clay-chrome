@@ -36,6 +36,7 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
   if (changeInfo.status === "complete" && liveUiRuntime) {
     liveUiRuntime.handleTabComplete(tabId, tab);
   }
+  if (liveUiPicker) liveUiPicker.handleTabUpdated(tabId, changeInfo, tab);
   if (changeInfo.url || changeInfo.title || changeInfo.status === "complete") {
     broadcastTabList();
   }

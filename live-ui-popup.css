@@ -81,10 +81,12 @@
   text-transform: uppercase;
 }
 
+.live-ui-field { margin-bottom: 9px; }
+
 .live-ui-select {
   width: 100%;
   height: 36px;
-  margin-bottom: 8px;
+  margin-bottom: 0;
   padding: 0 9px;
   border: 1px solid var(--border);
   border-radius: 7px;

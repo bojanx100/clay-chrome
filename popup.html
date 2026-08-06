@@ -32,8 +32,14 @@
     </div>
 
     <div id="liveUiSetup">
-      <label class="live-ui-label" for="liveUiSessionSelect">Send changes to</label>
-      <select id="liveUiSessionSelect" class="live-ui-select"></select>
+      <div class="live-ui-field">
+        <label class="live-ui-label" for="liveUiProjectSelect">Project</label>
+        <select id="liveUiProjectSelect" class="live-ui-select"></select>
+      </div>
+      <div class="live-ui-field">
+        <label class="live-ui-label" for="liveUiSessionSelect">Chat</label>
+        <select id="liveUiSessionSelect" class="live-ui-select"></select>
+      </div>
       <button id="liveUiStartBtn" class="live-ui-start">Start Live UI on this tab</button>
       <button id="liveUiConnectBtn" class="live-ui-connect hidden">Connect this tab as Clay</button>
       <div id="liveUiHint" class="live-ui-hint"></div>
