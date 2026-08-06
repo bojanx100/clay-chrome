@@ -88,68 +88,104 @@
     });
   }
 
+  function activeTargetTab(chromeApi, pairing, callback) {
+    chromeApi.tabs.get(pairing.targetTabId, function (targetTab) {
+      var getError = chromeApi.runtime.lastError;
+      if (getError || !targetTab || !Number.isInteger(targetTab.windowId)) {
+        callback(null, getError ? getError.message : "Live UI target tab is unavailable");
+        return;
+      }
+      chromeApi.tabs.query({ active: true, windowId: targetTab.windowId },
+        function (activeTabs) {
+          var queryError = chromeApi.runtime.lastError;
+          var activeTab = activeTabs && activeTabs[0];
+          if (queryError || !activeTab || activeTab.id !== pairing.targetTabId) {
+            callback(null, queryError ? queryError.message :
+              "Keep the Live UI target tab active while capturing");
+            return;
+          }
+          callback(targetTab, null);
+        });
+    });
+  }
+
+  function readCaptureState(chromeApi, pairing, callback) {
+    chromeApi.scripting.executeScript({
+      target: { tabId: pairing.targetTabId },
+      func: function () {
+        var host = document.querySelector("clay-live-ui[data-clay-live-ui-overlay]");
+        return {
+          documentGeneration: host ?
+            host.getAttribute("data-clay-live-ui-generation") : "",
+          width: window.innerWidth,
+          height: window.innerHeight,
+          scrollX: window.scrollX,
+          scrollY: window.scrollY,
+        };
+      },
+    }, function (results) {
+      var readError = chromeApi.runtime.lastError;
+      var current = results && results[0] ? results[0].result : null;
+      callback(current, readError ? readError.message : null);
+    });
+  }
+
+  function viewportMatches(packet, current) {
+    var viewport = packet.viewport;
+    return current &&
+      current.documentGeneration === packet.documentGeneration &&
+      current.width === viewport.width &&
+      current.height === viewport.height &&
+      current.scrollX === viewport.scrollX &&
+      current.scrollY === viewport.scrollY;
+  }
+
   function captureMaskedScreenshot(chromeApi, pairing, payload, callback) {
     var packet = capturePacket(payload);
     if (!packet || !packet.documentGeneration) {
       callback({ ok: false, error: "Screenshot context is invalid" });
       return;
     }
-    var debuggee = { tabId: pairing.targetTabId };
-    chromeApi.debugger.attach(debuggee, "1.3", function () {
-      var attachError = chromeApi.runtime.lastError;
-      if (attachError) {
-        callback({ ok: false, error: attachError.message });
+    activeTargetTab(chromeApi, pairing, function (targetTab, targetError) {
+      if (targetError) {
+        callback({ ok: false, error: targetError });
         return;
       }
-      chromeApi.debugger.sendCommand(debuggee, "Page.captureScreenshot", {
-        format: "png",
-        fromSurface: true,
-      }, function (result) {
-        var captureError = chromeApi.runtime.lastError;
-        if (captureError || !result || !result.data) {
-          chromeApi.debugger.detach(debuggee, function () {
-            void chromeApi.runtime.lastError;
-          });
-          callback({
-            ok: false,
-            error: captureError ? captureError.message : "Screenshot capture failed",
-          });
-          return;
-        }
-        chromeApi.scripting.executeScript({
-          target: { tabId: pairing.targetTabId },
-          func: function () {
-            var host = document.querySelector("clay-live-ui[data-clay-live-ui-overlay]");
-            return {
-              documentGeneration: host ?
-                host.getAttribute("data-clay-live-ui-generation") : "",
-              width: window.innerWidth,
-              height: window.innerHeight,
-              scrollX: window.scrollX,
-              scrollY: window.scrollY,
-            };
-          },
-        }, function (results) {
-          var current = results && results[0] ? results[0].result : null;
-          var viewport = packet.viewport;
-          chromeApi.debugger.detach(debuggee, function () {
-            void chromeApi.runtime.lastError;
-          });
-          if (!current ||
-              current.documentGeneration !== packet.documentGeneration ||
-              current.width !== viewport.width ||
-              current.height !== viewport.height ||
-              current.scrollX !== viewport.scrollX ||
-              current.scrollY !== viewport.scrollY) {
+      chromeApi.tabs.captureVisibleTab(targetTab.windowId, { format: "png" },
+        function (dataUrl) {
+          var captureError = chromeApi.runtime.lastError;
+          var marker = "data:image/png;base64,";
+          var rawData = typeof dataUrl === "string" &&
+            dataUrl.slice(0, marker.length).toLowerCase() === marker ?
+            dataUrl.slice(marker.length) : null;
+          if (captureError || !rawData) {
             callback({
               ok: false,
-              error: "The page moved during capture. Try the report again.",
+              error: captureError ? captureError.message : "Screenshot capture failed",
             });
             return;
           }
-          maskPng(result.data, packet, callback);
+          activeTargetTab(chromeApi, pairing, function (confirmedTab, activeError) {
+            if (activeError || !confirmedTab) {
+              callback({ ok: false, error: activeError });
+              return;
+            }
+            readCaptureState(chromeApi, pairing, function (current, readError) {
+              if (readError) {
+                callback({ ok: false, error: readError });
+                return;
+              }
+              if (!viewportMatches(packet, current)) {
+                callback({
+                  ok: false,
+                  error: "The page moved during capture. Try the report again.",
+                });
+                return;
+              }
+              maskPng(rawData, packet, callback);
+            });
+          });
         });
-      });
     });
   }
 
