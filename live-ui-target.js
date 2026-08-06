@@ -23,11 +23,9 @@
     projectLabel: "Clay project",
     sessionLabel: "New chat",
   };
-
   function nextMessageId(prefix) {
     return prefix + "-" + Date.now() + "-" + (++state.sequence);
   }
-
   function sendEvent(event, payload, clientMessageId, callback) {
     if (!state.pairingId) return;
     chrome.runtime.sendMessage({
@@ -42,7 +40,6 @@
       if (callback) callback(error ? { ok: false, error: error.message } : response);
     });
   }
-
   function positionSelection(element, selected) {
     if (!state.selectionOutline || !element) return;
     var rect = element.getBoundingClientRect();
@@ -53,7 +50,6 @@
     state.selectionOutline.style.height = rect.height + "px";
     state.selectionOutline.style.borderColor = selected ? "#8fe388" : "#55a7ff";
   }
-
   function componentTitle(packet) {
     if (packet && packet.component && packet.component.name) {
       return packet.component.name;
@@ -61,7 +57,6 @@
     return String(packet && (packet.accessibleName || packet.text || packet.tag) ||
       "Selected element").replace(/\s+/g, " ").trim().slice(0, 160);
   }
-
   function setSelectionSummary(packet) {
     var selected = !!state.selected;
     if (state.selectionCard) state.selectionCard.hidden = !selected;
@@ -83,7 +78,6 @@
         state.selectButtons[i].getAttribute("aria-label") ? "⌖" : "Pick another";
     }
   }
-
   function clearSelection(notify) {
     state.selected = null;
     state.selectedPacket = null;
@@ -98,7 +92,6 @@
     }
     if (notify) sendEvent("selection.clear", null, nextMessageId("selection"));
   }
-
   function stopSelecting() {
     state.selecting = false;
     state.hovered = null;
@@ -112,7 +105,6 @@
     else if (state.selectionOutline) state.selectionOutline.style.display = "none";
     setSelectionSummary(state.selectedPacket || {});
   }
-
   function startSelecting() {
     state.selecting = true;
     state.hovered = null;
@@ -123,7 +115,6 @@
       state.selectButtons[i].setAttribute("aria-pressed", "true");
     }
   }
-
   function elementUnderShield(event) {
     state.selectionShield.style.pointerEvents = "none";
     var element = document.elementFromPoint(event.clientX, event.clientY);
@@ -131,7 +122,6 @@
     if (!element || element === state.host) return null;
     return element;
   }
-
   function handleShieldMove(event) {
     if (!state.selecting) return;
     var element = elementUnderShield(event);
@@ -139,7 +129,6 @@
     state.hovered = element;
     positionSelection(element, false);
   }
-
   function publishSelection(element, packet) {
     if (state.selected !== element) return;
     state.selectedPacket = packet;
@@ -147,7 +136,6 @@
     positionSelection(element, true);
     sendEvent("selection.update", packet, nextMessageId("selection"));
   }
-
   function inspectSelection(element, packet) {
     sendEvent("component.inspect", {
       selectors: packet.selectors,
@@ -158,7 +146,6 @@
       publishSelection(element, packet);
     });
   }
-
   function handleShieldClick(event) {
     event.preventDefault();
     event.stopPropagation();
@@ -175,7 +162,6 @@
     state.input.focus();
     inspectSelection(element, packet);
   }
-
   function restoreSelection(packet, notify) {
     var element = context.resolveElement(packet);
     if (!element) return false;
@@ -191,7 +177,6 @@
     }
     return true;
   }
-
   function scheduleRefresh() {
     if (state.refreshFrame) return;
     state.refreshFrame = requestAnimationFrame(function () {
@@ -205,21 +190,20 @@
       if (state.reportManager) state.reportManager.refreshHighlights();
     });
   }
-
   function setComposeError(message) {
     if (!state.composeError) return;
     state.composeError.textContent = message || "";
     state.composeError.hidden = !message;
   }
-
   function setSubmitting(submitting, label) {
     state.submitting = submitting;
     if (!state.submitButton || !state.input) return;
     state.submitButton.disabled = submitting || !state.connected;
     state.input.disabled = submitting || !state.connected;
-    state.submitButton.textContent = submitting ? (label || "Reporting…") : "Report";
+    var followup = state.reportManager && state.reportManager.focused();
+    state.submitButton.textContent = submitting ? (label || "Reporting…") :
+      (followup ? "Send follow-up" : "Report");
   }
-
   function setConnected(connected) {
     if (state.connectionTimer) {
       clearTimeout(state.connectionTimer);
@@ -234,14 +218,12 @@
     setSubmitting(state.submitting);
     if (state.reportManager) state.reportManager.render();
   }
-
   function setConnectionError(message) {
     state.connected = false;
     if (state.connection) state.connection.classList.add("offline");
     setComposeError(message || "Live UI is disconnected.");
     setSubmitting(false);
   }
-
   function waitForConnection() {
     if (state.connectionTimer) clearTimeout(state.connectionTimer);
     state.connectionTimer = setTimeout(function () {
@@ -250,7 +232,6 @@
       }
     }, 8000);
   }
-
   function captureEvidence(callback) {
     var generation = state.documentGeneration;
     var viewport = {
@@ -282,7 +263,6 @@
       });
     });
   }
-
   function submitReport() {
     var text = state.input.value.trim();
     if (!text || state.submitting || !state.connected) return;
@@ -295,13 +275,18 @@
         return;
       }
       var clientMessageId = nextMessageId("report");
-      state.pendingSubmission = { clientMessageId: clientMessageId };
+      var focusedReport = state.reportManager && state.reportManager.focused();
+      state.pendingSubmission = {
+        clientMessageId: clientMessageId,
+        reportId: focusedReport ? focusedReport.reportId : null,
+      };
       state.submitButton.textContent = "Sending…";
-      sendEvent("report.submit", {
+      sendEvent("report.submit", Object.assign({
         text: text,
         screenshot: evidence.screenshot,
         diagnostics: evidence.diagnostics,
-      }, clientMessageId, function (response) {
+      }, focusedReport ? { reportId: focusedReport.reportId } : {}),
+      clientMessageId, function (response) {
         if (response && response.ok) return;
         state.pendingSubmission = null;
         setComposeError(response && response.error ?
@@ -310,13 +295,27 @@
       });
     });
   }
-
   function focusReport(report) {
-    if (!report || !report.locator) return;
-    restoreSelection(report.locator, true);
-    state.expand();
+    state.composeTarget.hidden = !report;
+    state.composeTargetLabel.textContent = report ?
+      (report.worker && report.worker.label || "Clay worker") + " · " + report.title : "";
+    state.input.placeholder = report ?
+      "Add feedback for this worker…" : "Describe the issue or change…";
+    if (report && report.locator) restoreSelection(report.locator, true);
+    if (report) state.expand();
+    setSubmitting(state.submitting);
   }
-
+  function approveReport(report) {
+    if (!report || state.submitting || !state.connected) return;
+    setComposeError("");
+    sendEvent("report.approve", { reportId: report.reportId },
+      nextMessageId("approve"), function (response) {
+        if (!response || response.ok === false) {
+          setComposeError(response && response.error ?
+            response.error : "Clay could not approve this worker change.");
+        }
+      });
+  }
   function handleReportEvent(envelope) {
     var payload = envelope.payload || {};
     if (envelope.event === "reports.snapshot") {
@@ -327,15 +326,16 @@
         envelope.event === "report.status") && payload.reportId) {
       state.reportManager.upsert(payload);
     }
+    if (envelope.event === "report.removed") state.reportManager.remove(payload.reportId);
     if (envelope.event === "report.accepted" && state.pendingSubmission) {
       state.pendingSubmission = null;
       state.input.value = "";
       clearSelection(true);
+      state.reportManager.focus(null);
       setSubmitting(false);
       setComposeError("");
     }
   }
-
   function bindOverlayEvents() {
     for (var i = 0; i < state.selectButtons.length; i++) {
       state.selectButtons[i].addEventListener("click", function () {
@@ -346,6 +346,9 @@
     state.selectionShield.addEventListener("pointermove", handleShieldMove);
     state.selectionShield.addEventListener("click", handleShieldClick);
     state.clearButton.addEventListener("click", function () { clearSelection(true); });
+    state.composeTargetClear.addEventListener("click", function () {
+      state.reportManager.focus(null);
+    });
     state.submitButton.addEventListener("click", submitReport);
     state.input.addEventListener("keydown", function (event) {
       if (event.key === "Enter" && !event.shiftKey) {
@@ -360,7 +363,6 @@
       });
     }
   }
-
   function createOverlay() {
     if (state.host && state.host.isConnected) return;
     var ui = globalThis.ClayLiveUiTargetUi.create({
@@ -376,6 +378,7 @@
       hmrState: state.hmrState,
       isConnected: function () { return state.connected; },
       onFocus: focusReport,
+      onApprove: approveReport,
       reportCount: state.reportCount,
       reportList: state.reportList,
       resolveElement: context.resolveElement,
@@ -390,7 +393,6 @@
     if (initialHmr) state.reportManager.handleHmr(initialHmr, { engine: "vite" });
     setSubmitting(false);
   }
-
   function destroy() {
     if (state.connectionTimer) clearTimeout(state.connectionTimer);
     if (state.refreshFrame) cancelAnimationFrame(state.refreshFrame);
@@ -411,7 +413,6 @@
       refreshFrame: null,
     });
   }
-
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape" && state.selecting) {
       event.preventDefault();

@@ -100,8 +100,13 @@ test("target overlay exposes a React inspector, change rail, and isolated picker
   assert.match(targetUi, /Selected component/);
   assert.match(targetReports, /worker-outline/);
   assert.match(targetReports, /Live update applied without reloading/);
+  assert.match(targetReports, /Add feedback/);
+  assert.match(targetReports, /Approve/);
   assert.match(target, /selection\.clear/);
   assert.match(target, /report\.submit/);
+  assert.match(target, /report\.approve/);
+  assert.match(target, /reportId: focusedReport\.reportId/);
+  assert.match(targetUi, /Following up with/);
   assert.match(target, /evidence\.capture/);
   assert.match(target, /component\.inspect/);
   assert.match(target, /handleShieldClick/);

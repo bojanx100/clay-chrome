@@ -115,6 +115,86 @@
       return "";
     }
 
+    function focused() {
+      return focusedId && reports[focusedId] ? reports[focusedId] : null;
+    }
+
+    function focus(reportId) {
+      focusedId = reportId && reports[reportId] ? reportId : null;
+      render();
+      if (options.onFocus) options.onFocus(focused());
+    }
+
+    function reportAction(label, className, action) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "report-action " + className;
+      button.textContent = label;
+      button.addEventListener("click", action);
+      return button;
+    }
+
+    function renderReport(report, status) {
+      var shell = document.createElement("div");
+      shell.className = "report-shell";
+      var row = document.createElement("button");
+      row.type = "button";
+      row.className = "report " + status +
+        (report.reportId === focusedId ? " focused" : "");
+      row.style.setProperty("--worker-color", safeColor(
+        report.worker && report.worker.color));
+      row.dataset.reportId = report.reportId;
+      row.innerHTML =
+        '<span class="report-icon">' + statusIcon(status) + '</span>' +
+        '<span class="report-copy"><strong class="report-title"></strong>' +
+        '<span class="report-meta"></span><span class="report-message"></span>' +
+        '<span class="report-hmr"></span></span>';
+      row.querySelector(".report-title").textContent = report.title || "Live UI report";
+      row.querySelector(".report-meta").textContent = [
+        report.worker && report.worker.label,
+        sourceFile(report) || null,
+      ].filter(function (part) { return !!part; }).join(" · ");
+      row.querySelector(".report-message").textContent =
+        report.message || "Being worked on.";
+      var hmr = row.querySelector(".report-hmr");
+      hmr.textContent = report.hmrMessage || "";
+      hmr.hidden = !report.hmrMessage;
+      row.addEventListener("click", function () {
+        focus(report.reportId === focusedId ? null : report.reportId);
+      });
+      shell.appendChild(row);
+      var actions = document.createElement("div");
+      actions.className = "report-actions";
+      actions.appendChild(reportAction("Add feedback", "feedback", function () {
+        focus(report.reportId);
+      }));
+      if (status === "completed") {
+        actions.appendChild(reportAction("Approve", "approve", function () {
+          if (options.onApprove) options.onApprove(report);
+        }));
+      }
+      shell.appendChild(actions);
+      return shell;
+    }
+
+    function renderAggregate(counts) {
+      var parts = [];
+      if (counts.working) parts.push(counts.working + " working");
+      if (counts.needs_input) parts.push(counts.needs_input + " need input");
+      if (counts.failed) parts.push(counts.failed + " failed");
+      if (counts.completed) parts.push(counts.completed + " done");
+      var aggregate = aggregateStatus(counts);
+      var dots = options.aggregateDots || [options.aggregateDot];
+      var labels = options.aggregateLabels || [options.aggregateLabel];
+      for (var i = 0; i < dots.length; i++) {
+        dots[i].className = "aggregate-dot" + (aggregate ? " " + aggregate : "");
+      }
+      for (var j = 0; j < labels.length; j++) {
+        labels[j].textContent = parts.length ?
+          parts.join(" · ") : (options.isConnected() ? "Ready" : "Disconnected");
+      }
+    }
+
     function render() {
       var values = reportValues();
       options.reportCount.textContent = String(values.length);
@@ -130,56 +210,9 @@
         var report = values[i];
         var status = counts[report.status] === undefined ? "working" : report.status;
         counts[status]++;
-        var row = document.createElement("button");
-        row.type = "button";
-        row.className = "report " + status +
-          (report.reportId === focusedId ? " focused" : "");
-        row.style.setProperty("--worker-color", safeColor(
-          report.worker && report.worker.color));
-        row.dataset.reportId = report.reportId;
-        var source = sourceFile(report);
-        row.innerHTML =
-          '<span class="report-icon">' + statusIcon(status) + '</span>' +
-          '<span class="report-copy"><strong class="report-title"></strong>' +
-          '<span class="report-meta"></span><span class="report-message"></span>' +
-          '<span class="report-hmr"></span></span>';
-        row.querySelector(".report-title").textContent =
-          report.title || "Live UI report";
-        row.querySelector(".report-meta").textContent = [
-          report.worker && report.worker.label,
-          source || null,
-        ].filter(function (part) { return !!part; }).join(" · ");
-        row.querySelector(".report-message").textContent =
-          report.message || "Being worked on.";
-        var hmr = row.querySelector(".report-hmr");
-        hmr.textContent = report.hmrMessage || "";
-        hmr.hidden = !report.hmrMessage;
-        row.addEventListener("click", (function (current) {
-          return function () {
-            focusedId = current.reportId === focusedId ? null : current.reportId;
-            render();
-            refreshHighlights();
-            if (focusedId && options.onFocus) options.onFocus(current);
-          };
-        })(report));
-        options.reportList.appendChild(row);
+        options.reportList.appendChild(renderReport(report, status));
       }
-      var parts = [];
-      if (counts.working) parts.push(counts.working + " working");
-      if (counts.needs_input) parts.push(counts.needs_input + " need input");
-      if (counts.failed) parts.push(counts.failed + " failed");
-      if (counts.completed) parts.push(counts.completed + " done");
-      var aggregate = aggregateStatus(counts);
-      var dots = options.aggregateDots || [options.aggregateDot];
-      var labels = options.aggregateLabels || [options.aggregateLabel];
-      for (var di = 0; di < dots.length; di++) {
-        dots[di].className = "aggregate-dot" +
-          (aggregate ? " " + aggregate : "");
-      }
-      for (var li = 0; li < labels.length; li++) {
-        labels[li].textContent = parts.length ?
-          parts.join(" · ") : (options.isConnected() ? "Ready" : "Disconnected");
-      }
+      renderAggregate(counts);
       refreshHighlights();
     }
 
@@ -194,7 +227,16 @@
       reports = {};
       var values = Array.isArray(nextReports) ? nextReports : [];
       for (var i = 0; i < values.length; i++) upsert(values[i]);
+      if (focusedId && !reports[focusedId]) focusedId = null;
       render();
+    }
+
+    function remove(reportId) {
+      var wasFocused = focusedId === reportId;
+      delete reports[reportId];
+      if (wasFocused) focusedId = null;
+      render();
+      if (wasFocused && options.onFocus) options.onFocus(null);
     }
 
     function pulse(report) {
@@ -255,10 +297,13 @@
 
     return {
       clear: clear,
+      focus: focus,
+      focused: focused,
       handleHmr: handleHmr,
       refreshHighlights: refreshHighlights,
       render: render,
       replace: replace,
+      remove: remove,
       upsert: upsert,
     };
   }
