@@ -360,6 +360,8 @@ test("picker implementation stays bounded and avoids credential storage", functi
   assert.match(popup, /projectSlug: selected\.projectSlug/);
   assert.match(popup, /live_ui_picker_load_project/);
   assert.match(popup, /does not own the development server/);
+  assert.match(popup, /nextSignature === liveUiOptionsSignature/);
+  assert.match(popup, /document\.activeElement === liveUiSessionSelect/);
   assert.match(background, /liveUiPicker\.handleTabUpdated/);
   assert.match(background, /live-ui-picker-discovery\.js/);
   assert.doesNotMatch(source, /storage\.local/);

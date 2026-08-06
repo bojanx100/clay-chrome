@@ -18,6 +18,7 @@ var liveUiState = null;
 var liveUiPoll = null;
 var liveUiRequestedProjects = {};
 var liveUiRecovery = null;
+var liveUiOptionsSignature = null;
 
 function setLiveUiStatus(text, kind) {
   liveUiStatus.textContent = text || "";
@@ -169,26 +170,45 @@ function sessionIdForSelection(previousSessionId, preferredPairing) {
   return preferredPairing ? preferredPairing.sessionId : null;
 }
 
+function optionsSignature(projects, preferredPairing) {
+  return JSON.stringify({
+    projects: projects,
+    preferred: preferredPairing ? {
+      clayTabId: preferredPairing.clayTabId,
+      projectSlug: preferredPairing.projectSlug,
+      sessionId: preferredPairing.sessionId,
+    } : null,
+  });
+}
+
 function renderLiveUiOptions(controls, preferredPairing) {
+  if (document.activeElement === liveUiSessionSelect) return;
   var previousProject = liveUiProjects[Number(liveUiProjectSelect.value)] || null;
   var previousSession = liveUiOptions[Number(liveUiSessionSelect.value)] || null;
   var previousKey = previousProject ? previousProject.key : null;
   var previousSessionId = previousSession ? previousSession.sessionId : null;
-  liveUiProjects = collectLiveUiProjects(controls);
-  liveUiProjectSelect.innerHTML = "";
-  for (var pi = 0; pi < liveUiProjects.length; pi++) {
-    var project = liveUiProjects[pi];
-    var option = document.createElement("option");
-    option.value = String(pi);
-    option.textContent = project.projectLabel;
-    liveUiProjectSelect.appendChild(option);
+  var nextProjects = collectLiveUiProjects(controls);
+  var nextSignature = optionsSignature(nextProjects, preferredPairing);
+  if (nextSignature === liveUiOptionsSignature) return;
+  var projectActive = document.activeElement === liveUiProjectSelect;
+  liveUiProjects = nextProjects;
+  if (!projectActive) {
+    liveUiProjectSelect.innerHTML = "";
+    for (var pi = 0; pi < liveUiProjects.length; pi++) {
+      var project = liveUiProjects[pi];
+      var option = document.createElement("option");
+      option.value = String(pi);
+      option.textContent = project.projectLabel;
+      liveUiProjectSelect.appendChild(option);
+    }
   }
   var selectedProjectIndex = projectIndexForSelection(previousKey, preferredPairing);
-  liveUiProjectSelect.value = String(selectedProjectIndex);
+  if (!projectActive) liveUiProjectSelect.value = String(selectedProjectIndex);
   var selectedProject = liveUiProjects[selectedProjectIndex] || null;
   var desiredSessionId = sessionIdForSelection(previousSessionId, preferredPairing);
   renderSessionOptions(selectedProject, desiredSessionId);
   requestProjectSessions(selectedProject);
+  if (!projectActive) liveUiOptionsSignature = nextSignature;
 }
 
 function renderActivePairing(pairing) {
