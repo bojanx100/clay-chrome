@@ -4,6 +4,7 @@ var fs = require("node:fs");
 var path = require("node:path");
 var pickerModule = require("../live-ui-picker-background");
 var discoveryModule = require("../live-ui-picker-discovery");
+var targetModule = require("../live-ui-picker-target");
 
 function harness(options) {
   options = options || {};
@@ -19,12 +20,16 @@ function harness(options) {
   var tabs = [
     { id: 7, url: "http://100.100.10.20:2633/p/clay/", title: "Clay" },
     { id: 42, url: "http://100.100.10.20:4242/pricing", title: "Pricing" },
+    { id: 43, url: "http://100.100.10.20:4242/account", title: "Account" },
   ];
   var chromeApi = {
     runtime: { id: "extension-a", lastError: null },
     tabs: {
       query: function (query, callback) {
         callback(query.active ? [tabs[1]] : tabs);
+      },
+      get: function (tabId, callback) {
+        callback(tabs.filter(function (tab) { return tab.id === tabId; })[0]);
       },
       update: function (tabId, options, callback) {
         updateCalls.push({ tabId: tabId, options: options });
@@ -51,7 +56,8 @@ function harness(options) {
     runtime,
     function (tabId) { return ports[tabId] || null; },
     function () { return Object.keys(ports); },
-    discoveryModule
+    discoveryModule,
+    targetModule
   );
   if (options.connected !== false) picker.handlePortMessage(7, {
     type: "clay_live_ui_identity",
@@ -112,6 +118,17 @@ test("picker exposes connected Clay sessions and the active target tab", functio
   assert.strictEqual(response.controls[0].projects.length, 2);
   assert.strictEqual(response.controls[0].sessions[0].title, "Live UI work");
   assert.deepStrictEqual(response.recentPairings, recent);
+});
+
+test("picker resolves the exact inspected tab requested by DevTools", function () {
+  var state = harness();
+  var response = null;
+  state.picker.handlePopupMessage({
+    type: "live_ui_picker_get_state",
+    targetTabId: 43,
+  }, function (value) { response = value; });
+  assert.strictEqual(response.activeTab.id, 43);
+  assert.strictEqual(response.activeTab.title, "Account");
 });
 
 test("picker keeps a connected Clay tab visible when no chats exist", function () {
@@ -262,6 +279,25 @@ test("picker pins the active web tab to an explicitly selected session", functio
   assert.strictEqual(request.sessionId, 12);
   assert.strictEqual(request.extensionId, "extension-a");
   assert.ok(request.tabs.some(function (tab) { return tab.id === 42; }));
+});
+
+test("picker pins the exact inspected tab instead of the active tab", function () {
+  var state = harness();
+  var response = null;
+  state.picker.handlePopupMessage({
+    type: "live_ui_picker_pair",
+    controlTabId: 7,
+    projectSlug: "clay",
+    sessionId: 12,
+    targetTabId: 43,
+  }, function (value) { response = value; });
+  assert.strictEqual(response.ok, true);
+  var request = state.portMessages.filter(function (message) {
+    return message.type === "clay_live_ui_picker_pair_request";
+  })[0];
+  assert.ok(request);
+  assert.strictEqual(request.targetTabId, 43);
+  assert.ok(request.tabs.some(function (tab) { return tab.id === 43; }));
 });
 
 test("picker opens another project and pairs only after Clay reconnects there", function () {

@@ -87,12 +87,14 @@
       favIconUrl: String(tab.favIconUrl || ""),
     };
   }
-  function createPicker(chromeApi, runtime, getPort, getPortIds, discoveryModule) {
+  function createPicker(chromeApi, runtime, getPort, getPortIds, discoveryModule,
+      targetModule) {
     var identities = {};
     var pendingPairs = {};
     var pendingConnections = {};
     var status = null;
     var counter = 0;
+    var targetResolver = targetModule || root.ClayLiveUiPickerTarget;
     var discovery = discoveryModule && discoveryModule.createDiscovery(
       chromeApi, getPort, requestIdentity);
     function mergeIdentity(previous, next) {
@@ -296,9 +298,8 @@
       }
       return result;
     }
-    function pickerState(sendResponse) {
-      chromeApi.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-        var activeTab = tabs && tabs[0] ? publicTab(tabs[0]) : null;
+    function pickerState(message, sendResponse) {
+      targetResolver.resolve(chromeApi, message, publicTab, function (activeTab) {
         var connectedControls = controls();
         function respond(discoveryState) {
           sendResponse({
@@ -333,8 +334,7 @@
         return;
       }
       chromeApi.tabs.query({}, function (tabs) {
-        chromeApi.tabs.query({ active: true, currentWindow: true }, function (activeTabs) {
-          var target = activeTabs && activeTabs[0] ? publicTab(activeTabs[0]) : null;
+        targetResolver.resolve(chromeApi, message, publicTab, function (target) {
           if (!target || target.id === controlTabId) {
             sendResponse({
               ok: false,
@@ -462,7 +462,7 @@
     function handlePopupMessage(message, sendResponse) {
       if (!message) return false;
       if (message.type === "live_ui_picker_get_state") {
-        pickerState(sendResponse);
+        pickerState(message, sendResponse);
         return true;
       }
       if (message.type === "live_ui_picker_pair") {

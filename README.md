@@ -53,12 +53,29 @@ clay-chrome/
   content.js        Injected into Clay tabs: message bridge
   inject.js         Injected into target tabs: console/network capture
   live-ui-evidence.js  Masked screenshot and bounded diagnostics capture
+  devtools*.{html,js}  Docked Clay panel for the exact inspected tab
   live-ui-react-background.js  Main-world React component/source inspection
   live-ui-target*.js   Isolated picker, right inspector, HMR, and worker highlights
   icons/            Extension icons (16, 48, 128)
 ```
 
-No popup. No options page. No UI in the extension itself. All UI lives in Clay.
+The toolbar popup handles MCP setup and quick Live UI pairing. The docked
+DevTools panel is the primary Live UI connection surface; the picker and
+inspector themselves run inside the paired development page.
+
+## Live UI in DevTools
+
+1. Keep Clay open in any browser tab.
+2. Open DevTools on the development page you want to change.
+3. Select the **Clay** DevTools panel.
+4. Choose a project, then a visible top-level chat or coordinator.
+5. Select **Start Live UI on inspected page**.
+
+The panel binds with `chrome.devtools.inspectedWindow.tabId`, so it remains
+attached to the inspected page even when another browser or Clay tab becomes
+active. Workers are intentionally omitted from the chat selector. Live UI
+reports automatically include a securely masked screenshot and bounded recent
+console/network evidence. Select **Exit Live UI** to revoke the pairing.
 
 ## Commands
 
@@ -100,7 +117,11 @@ These use `chrome.scripting.executeScript` in `MAIN` world, so they work even wh
 
 ### Debugger commands
 
-These use `chrome.debugger` (CDP protocol 1.3). Only one debugger can attach per tab, so these conflict with DevTools if it is open.
+These direct commands use `chrome.debugger` (CDP protocol 1.3). Only one
+debugger can attach per tab, so direct `tab_screenshot` calls conflict with
+DevTools when it is open. Live UI reports do not use this path: their masked
+screenshot uses `chrome.tabs.captureVisibleTab` and remains available from the
+docked Clay panel.
 
 | Command | Args | Returns | Description |
 |---------|------|---------|-------------|

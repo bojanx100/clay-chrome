@@ -4,6 +4,7 @@
 importScripts("live-ui-evidence.js", "live-ui-react-background.js",
   "live-ui-background.js",
   "live-ui-picker-discovery.js",
+  "live-ui-picker-target.js",
   "live-ui-picker-background.js");
 
 // --- State ---
@@ -158,7 +159,8 @@ var liveUiPicker = ClayLiveUiPickerBackground.createPicker(
   liveUiRuntime,
   function (tabId) { return clayPorts[tabId] || null; },
   function () { return Object.keys(clayPorts); },
-  ClayLiveUiPickerDiscovery
+  ClayLiveUiPickerDiscovery,
+  ClayLiveUiPickerTarget
 );
 
 chrome.runtime.onConnect.addListener(function (port) {
