@@ -53,15 +53,18 @@ clay-chrome/
   content.js        Injected into Clay tabs: message bridge
   inject.js         Injected into target tabs: console/network capture
   live-ui-evidence.js  Masked screenshot and bounded diagnostics capture
-  devtools*.{html,js}  Docked Clay panel for the exact inspected tab
+  devtools*.{html,css,js}  Complete docked Live UI workspace for the inspected tab
   live-ui-react-background.js  Main-world React component/source inspection
-  live-ui-target*.js   Isolated picker, right inspector, HMR, and worker highlights
+  live-ui-target*.js   Event-isolated picker, HMR state, and worker highlights
   icons/            Extension icons (16, 48, 128)
 ```
 
 The toolbar popup handles MCP setup and quick Live UI pairing. The docked
-DevTools panel is the primary Live UI connection surface; the picker and
-inspector themselves run inside the paired development page.
+DevTools panel contains the full Live UI workspace: component details, report
+composer, worker changes, follow-ups, approvals, HMR state, and Exit. The paired
+development page contains no persistent toolbox or sidebar. It receives only a
+temporary event-blocking selection shield while picking and pointer-transparent
+selection or worker outlines afterward.
 
 ## Live UI in DevTools
 
@@ -70,6 +73,8 @@ inspector themselves run inside the paired development page.
 3. Select the **Clay** DevTools panel.
 4. Choose a project, then a visible top-level chat or coordinator.
 5. Select **Start Live UI on inspected page**.
+6. Pick a component and report issues from the Clay panel. Each completed worker
+   remains available for testing, follow-up, or approval.
 
 The panel binds with `chrome.devtools.inspectedWindow.tabId`, so it remains
 attached to the inspected page even when another browser or Clay tab becomes
@@ -135,13 +140,13 @@ Clay uses this extension for three things:
 
 1. **Context sources**: Users select browser tabs as context sources. Each message automatically includes console logs, network requests, page text, and a screenshot from the selected tabs.
 2. **MCP tools**: Clay's Browser MCP server exposes 17 `browser_*` tools to Claude, which call extension commands through an HTTP bridge.
-3. **Live UI**: A Clay session can pair with an authorized development tab,
-   inject an event-isolated component picker and collapsible right inspector,
-   and submit multiple issues to a Clay coordinator. React development pages
-   expose component/source candidates and Fast Refresh state. Each report
-   automatically includes a masked screenshot plus bounded console/network
-   context. Worker-colored outlines match the owning Clay worker, while the
-   page receives only working, needs-input, failed, and verified-complete status.
+3. **Live UI**: A Clay session can pair with an authorized development tab and
+   accept multiple issues from the complete docked DevTools workspace. React
+   development pages expose component/source candidates and Fast Refresh state.
+   Each report automatically includes a masked screenshot plus bounded
+   console/network context. Worker-colored, pointer-transparent outlines match
+   the owning Clay worker. All interactive controls stay in DevTools, so Live UI
+   does not cover or intercept the application outside explicit pick mode.
 
 Live UI pairings are stored in `chrome.storage.session`, bound to one Clay
 control tab and one target tab, and restored only through a server-issued

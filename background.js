@@ -3,6 +3,7 @@
 // Bridges local MCP servers to Clay via Native Messaging
 importScripts("live-ui-evidence.js", "live-ui-react-background.js",
   "live-ui-background.js",
+  "live-ui-devtools-background.js",
   "live-ui-picker-discovery.js",
   "live-ui-picker-target.js",
   "live-ui-picker-background.js");
@@ -154,6 +155,7 @@ var clayPorts = {}; // tabId -> port
 var liveUiRuntime = ClayLiveUiBackground.createRuntime(chrome, function (tabId) {
   return clayPorts[tabId] || null;
 });
+var liveUiDevtools = ClayLiveUiDevtoolsBackground.createBridge(chrome, liveUiRuntime);
 var liveUiPicker = ClayLiveUiPickerBackground.createPicker(
   chrome,
   liveUiRuntime,
@@ -230,6 +232,7 @@ chrome.runtime.onConnect.addListener(function (port) {
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   if (liveUiRuntime.handleTargetMessage(msg, sender, sendResponse)) return true;
   if (!sender.tab) {
+    if (liveUiDevtools.handleMessage(msg, sendResponse)) return true;
     if (liveUiPicker.handlePopupMessage(msg, sendResponse)) return true;
     if (msg.type === "mcp_check_host") {
       mcpCheckHost(sendResponse);

@@ -123,7 +123,8 @@
         chromeApi.scripting.executeScript({
           target: { tabId: pairing.targetTabId },
           files: ["live-ui-target-context.js", "live-ui-target-reports.js",
-            "live-ui-target-ui.js", "live-ui-target.js"],
+            "live-ui-target-ui.js", "live-ui-target-snapshot.js",
+            "live-ui-target.js"],
         }, function () {
           var targetError = chromeApi.runtime.lastError;
           if (targetError) return callback({ ok: false, error: targetError.message });

@@ -79,7 +79,7 @@ test("React inspection executes in the page world with bounded selectors", funct
   assert.strictEqual(result.component.name, "Clock");
 });
 
-test("target overlay exposes a React inspector, change rail, and isolated picker", function () {
+test("target canvas exposes only React selection and worker highlights", function () {
   var root = path.join(__dirname, "..");
   var target = fs.readFileSync(path.join(root, "live-ui-target.js"), "utf8");
   var targetContext = fs.readFileSync(
@@ -87,26 +87,26 @@ test("target overlay exposes a React inspector, change rail, and isolated picker
   var targetUi = fs.readFileSync(path.join(root, "live-ui-target-ui.js"), "utf8");
   var targetReports = fs.readFileSync(
     path.join(root, "live-ui-target-reports.js"), "utf8");
+  var targetSnapshot = fs.readFileSync(
+    path.join(root, "live-ui-target-snapshot.js"), "utf8");
   var background = fs.readFileSync(path.join(root, "live-ui-background.js"), "utf8");
   var evidence = fs.readFileSync(path.join(root, "live-ui-evidence.js"), "utf8");
   var reactBridge = fs.readFileSync(
     path.join(root, "live-ui-react-background.js"), "utf8");
   var inject = fs.readFileSync(path.join(root, "inject.js"), "utf8");
-  assert.match(targetUi, /Coordinator/);
-  assert.match(targetUi, /attach automatically/);
   assert.match(targetUi, /selection-shield/);
-  assert.match(targetUi, /aggregate-dot/);
-  assert.match(targetUi, /Show Live UI sidebar/);
-  assert.match(targetUi, /Selected component/);
+  assert.match(targetUi, /worker-outline/);
+  assert.doesNotMatch(targetUi, /Show Live UI sidebar|Hide Live UI sidebar/);
+  assert.doesNotMatch(targetUi, /<aside class="(?:panel|rail)"/);
+  assert.doesNotMatch(targetUi, /<(?:button|textarea|input|select|aside)\b/);
   assert.match(targetReports, /worker-outline/);
   assert.match(targetReports, /Live update applied without reloading/);
-  assert.match(targetReports, /Add feedback/);
-  assert.match(targetReports, /Approve/);
   assert.match(target, /selection\.clear/);
   assert.match(target, /report\.submit/);
   assert.match(target, /report\.approve/);
   assert.match(target, /reportId: focusedReport\.reportId/);
-  assert.match(targetUi, /Following up with/);
+  assert.match(target, /live_ui_devtools_command/);
+  assert.match(background, /live-ui-target-snapshot\.js/);
   assert.match(target, /evidence\.capture/);
   assert.match(target, /component\.inspect/);
   assert.match(target, /handleShieldClick/);
@@ -119,6 +119,7 @@ test("target overlay exposes a React inspector, change rail, and isolated picker
   assert.ok(target.split("\n").length < 500);
   assert.ok(targetContext.split("\n").length < 500);
   assert.ok(targetReports.split("\n").length < 500);
+  assert.ok(targetSnapshot.split("\n").length < 500);
   assert.ok(targetUi.split("\n").length < 500);
   assert.ok(background.split("\n").length < 500);
   assert.ok(evidence.split("\n").length < 500);

@@ -315,8 +315,7 @@ h2 {
   opacity: .68;
 }
 
-.primary-action,
-.secondary-action {
+.primary-action {
   width: 100%;
   min-height: 38px;
   border-radius: 8px;
@@ -336,8 +335,7 @@ h2 {
   background: var(--violet-bright);
 }
 
-.primary-action:focus-visible,
-.secondary-action:focus-visible {
+.primary-action:focus-visible {
   outline: 2px solid var(--violet-bright);
   outline-offset: 2px;
 }
@@ -345,17 +343,6 @@ h2 {
 .primary-action:disabled {
   cursor: not-allowed;
   opacity: .38;
-}
-
-.secondary-action {
-  margin-top: 18px;
-  border: 1px solid rgba(255, 111, 121, .4);
-  background: transparent;
-  color: var(--red);
-}
-
-.secondary-action:hover:not(:disabled) {
-  background: rgba(255, 111, 121, .08);
 }
 
 .panel-status {
@@ -484,59 +471,6 @@ h2 {
   background: rgba(139, 120, 255, .045);
   font-size: 10px;
   line-height: 1.5;
-}
-
-.active-view {
-  position: relative;
-  z-index: 1;
-}
-
-.active-pulse {
-  display: grid;
-  width: 44px;
-  height: 44px;
-  margin-bottom: 16px;
-  place-items: center;
-  border: 1px solid rgba(74, 210, 149, .32);
-  border-radius: 50%;
-  background: rgba(74, 210, 149, .07);
-}
-
-.active-pulse span {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--green);
-  box-shadow: 0 0 0 7px rgba(74, 210, 149, .08);
-}
-
-.active-project {
-  margin-top: 6px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.active-route {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid rgba(74, 210, 149, .25);
-  border-radius: 8px;
-  background: rgba(74, 210, 149, .055);
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.route-arrow {
-  color: var(--green);
-}
-
-#activeRouteLabel {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .panel-footer {

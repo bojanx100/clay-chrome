@@ -8,11 +8,10 @@ var sessionSelect = document.getElementById("sessionSelect");
 var startButton = document.getElementById("startButton");
 var exitButton = document.getElementById("exitButton");
 var panelStatus = document.getElementById("panelStatus");
-var inactiveView = document.getElementById("inactiveView");
-var activeView = document.getElementById("activeView");
-var activeSession = document.getElementById("activeSession");
-var activeProject = document.getElementById("activeProject");
-var activeRouteLabel = document.getElementById("activeRouteLabel");
+var setupWorkspace = document.getElementById("setupWorkspace");
+var liveWorkspace = document.getElementById("liveWorkspace");
+var liveSession = document.getElementById("liveSession");
+var liveProject = document.getElementById("liveProject");
 var inspectedTabId = chrome.devtools.inspectedWindow.tabId;
 var panelState = null;
 var projects = [];
@@ -21,6 +20,8 @@ var requestedProjects = {};
 var optionsSignature = null;
 var pollTimer = null;
 var loadingState = false;
+var loadingTarget = false;
+var liveUiWorkspace = null;
 
 function setBadge(label, kind) {
   connectionLabel.textContent = label;
@@ -49,6 +50,20 @@ function send(message, callback) {
     }
     callback(response || { ok: false, error: "The extension background is unavailable." });
   });
+}
+
+function sendTarget(action, payload, callback) {
+  var pairing = activePairing(panelState);
+  if (!pairing) {
+    callback({ ok: false, error: "The inspected page is not paired." });
+    return;
+  }
+  send({
+    type: "live_ui_devtools_command",
+    pairingId: pairing.pairingId,
+    action: action,
+    payload: payload || {},
+  }, callback);
 }
 
 function activePairing(state) {
@@ -221,15 +236,48 @@ function renderTarget(tab) {
 
 function renderActive(pairing) {
   setBadge("Live", "live");
-  inactiveView.classList.add("hidden");
-  activeView.classList.remove("hidden");
-  activeSession.textContent = pairing.sessionLabel || "New chat";
-  activeProject.textContent = pairing.projectLabel || pairing.projectSlug || "Clay project";
-  activeRouteLabel.textContent = activeProject.textContent + " · " + activeSession.textContent;
+  setupWorkspace.classList.add("hidden");
+  liveWorkspace.classList.remove("hidden");
+  liveSession.textContent = pairing.sessionLabel || "New chat";
+  liveProject.textContent = pairing.projectLabel || pairing.projectSlug || "Clay project";
   projectSelect.disabled = true;
   sessionSelect.disabled = true;
   startButton.disabled = true;
   setStatus("");
+  loadTargetState(pairing);
+}
+
+function loadTargetState(pairing) {
+  if (loadingTarget) return;
+  loadingTarget = true;
+  send({
+    type: "live_ui_devtools_command",
+    pairingId: pairing.pairingId,
+    action: "snapshot",
+  }, function (response) {
+    loadingTarget = false;
+    var currentPairing = activePairing(panelState);
+    if (!currentPairing || currentPairing.pairingId !== pairing.pairingId) return;
+    if (response && response.ok) {
+      liveUiWorkspace.render(response);
+      return;
+    }
+    liveUiWorkspace.render({
+      ok: true,
+      pairingId: pairing.pairingId,
+      projectLabel: pairing.projectLabel || pairing.projectSlug || "Clay project",
+      sessionLabel: pairing.sessionLabel || "Connected chat",
+      connected: false,
+      selecting: false,
+      submitting: false,
+      selection: null,
+      composeError: response && response.error || "The inspected page is not responding.",
+      reports: [],
+      counts: {},
+      aggregateStatus: "",
+      hmr: {},
+    });
+  });
 }
 
 function renderPickerStatus(status) {
@@ -244,8 +292,9 @@ function renderPickerStatus(status) {
 }
 
 function renderSetup(state) {
-  activeView.classList.add("hidden");
-  inactiveView.classList.remove("hidden");
+  liveWorkspace.classList.add("hidden");
+  setupWorkspace.classList.remove("hidden");
+  liveUiWorkspace.reset();
   var controls = state.controls || [];
   var preferred = recentPairing(state);
   renderOptions(controls, preferred);
@@ -343,6 +392,7 @@ exitButton.addEventListener("click", function () {
   });
 });
 
+liveUiWorkspace = ClayLiveUiDevtoolsWorkspace.create({ command: sendTarget });
 loadState();
 pollTimer = setInterval(loadState, 750);
 window.addEventListener("unload", function () {

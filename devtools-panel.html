@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Clay Live UI</title>
   <link rel="stylesheet" href="devtools-panel.css">
+  <link rel="stylesheet" href="devtools-live-workspace.css">
 </head>
 <body>
   <div class="panel-shell">
@@ -22,7 +23,7 @@
       </div>
     </header>
 
-    <main class="panel-layout">
+    <main id="setupWorkspace" class="panel-layout">
       <section class="route-card" aria-labelledby="routeTitle">
         <div class="section-heading">
           <div>
@@ -71,54 +72,115 @@
       </section>
 
       <section class="work-card" aria-labelledby="workTitle">
-        <div id="inactiveView">
-          <div class="eyebrow">Workspace</div>
-          <h2 id="workTitle">Report while the page stays live</h2>
-          <p class="intro-copy">
-            Start Live UI, then pick the exact component on the page. Clay receives
-            the page context without changing your current DevTools target.
-          </p>
+        <div class="eyebrow">Workspace</div>
+        <h2 id="workTitle">Report while the page stays live</h2>
+        <p class="intro-copy">
+          Start Live UI, then pick the exact component on the page. The inspected
+          application remains unobstructed while all controls stay in DevTools.
+        </p>
 
-          <div class="evidence-grid" aria-label="Automatic report evidence">
-            <div class="evidence-item">
-              <span class="evidence-icon frame-icon" aria-hidden="true"></span>
-              <div><strong>Screenshot</strong><span>Current viewport</span></div>
-              <span class="auto-tag">Auto</span>
-            </div>
-            <div class="evidence-item">
-              <span class="evidence-icon console-icon" aria-hidden="true">›_</span>
-              <div><strong>Console</strong><span>Recent entries</span></div>
-              <span class="auto-tag">Auto</span>
-            </div>
-            <div class="evidence-item">
-              <span class="evidence-icon network-icon" aria-hidden="true"></span>
-              <div><strong>Network</strong><span>Recent requests</span></div>
-              <span class="auto-tag">Auto</span>
-            </div>
+        <div class="evidence-grid" aria-label="Automatic report evidence">
+          <div class="evidence-item">
+            <span class="evidence-icon frame-icon" aria-hidden="true"></span>
+            <div><strong>Screenshot</strong><span>Current viewport</span></div>
+            <span class="auto-tag">Auto</span>
           </div>
-
-          <div class="quiet-note">
-            Every report stays attached to the selected chat until you exit Live UI.
+          <div class="evidence-item">
+            <span class="evidence-icon console-icon" aria-hidden="true">›_</span>
+            <div><strong>Console</strong><span>Recent entries</span></div>
+            <span class="auto-tag">Auto</span>
+          </div>
+          <div class="evidence-item">
+            <span class="evidence-icon network-icon" aria-hidden="true"></span>
+            <div><strong>Network</strong><span>Recent requests</span></div>
+            <span class="auto-tag">Auto</span>
           </div>
         </div>
 
-        <div id="activeView" class="active-view hidden">
-          <div class="active-pulse" aria-hidden="true"><span></span></div>
-          <div class="eyebrow live">Live connection</div>
-          <h2 id="activeSession">Connected chat</h2>
-          <div id="activeProject" class="active-project">Clay project</div>
-          <p class="intro-copy">
-            The selection toolbox is active on the inspected page. Pick a component,
-            describe the change, and keep reporting follow-ups to this chat.
-          </p>
-          <div class="active-route">
-            <span>Inspected tab</span>
-            <span class="route-arrow">→</span>
-            <span id="activeRouteLabel">Clay</span>
-          </div>
-          <button id="exitButton" class="secondary-action">Exit Live UI</button>
+        <div class="quiet-note">
+          Reports stay attached to the selected chat until you exit Live UI.
         </div>
       </section>
+    </main>
+
+    <main id="liveWorkspace" class="live-workspace hidden" aria-label="Live UI workspace">
+      <section class="live-toolbar">
+        <div class="live-route-identity">
+          <div class="live-status-line">
+            <span id="liveAggregateDot" class="live-aggregate-dot ready"></span>
+            <span id="liveAggregateLabel">Ready</span>
+          </div>
+          <h1 id="liveSession">Connected chat</h1>
+          <div id="liveProject" class="live-project">Clay project</div>
+        </div>
+        <button id="exitButton" class="exit-live-button">Exit Live UI</button>
+      </section>
+
+      <div class="live-grid">
+        <section class="live-column context-column">
+          <div id="selectedCard" class="live-card selected-card hidden">
+            <div class="card-heading-row">
+              <div>
+                <div class="eyebrow">Selected component</div>
+                <h2 id="selectedTitle">Component</h2>
+              </div>
+              <button id="clearSelectionButton" class="text-action">Clear</button>
+            </div>
+            <div id="selectedSource" class="source-location"></div>
+            <div id="selectedElement" class="element-summary"></div>
+            <div id="selectedChain" class="component-chain"></div>
+          </div>
+
+          <div id="emptySelectionCard" class="live-card empty-selection-card">
+            <div class="empty-selection-mark" aria-hidden="true"></div>
+            <div>
+              <div class="eyebrow">Selected component</div>
+              <h2>No component selected</h2>
+              <p>Pick directly from the inspected page. The click will not reach the app.</p>
+            </div>
+          </div>
+
+          <button id="pickButton" class="pick-component-button">Pick component</button>
+
+          <div id="hmrStatus" class="hmr-status hidden" aria-live="polite">
+            <span class="hmr-pulse"></span>
+            <span id="hmrLabel">Fast Refresh ready</span>
+          </div>
+        </section>
+
+        <section class="live-column work-column">
+          <div class="worker-heading">
+            <div>
+              <div class="eyebrow">Worker changes</div>
+              <h2>Issues on this page</h2>
+            </div>
+            <span id="reportCount" class="report-count">0</span>
+          </div>
+
+          <div id="reportList" class="report-list" aria-live="polite"></div>
+          <div id="emptyReports" class="empty-reports">
+            Report an issue and Clay will show its worker here until you approve it.
+          </div>
+
+          <div class="composer-card">
+            <div id="followupTarget" class="followup-target hidden">
+              <span>Adding feedback to</span>
+              <strong id="followupLabel">Worker change</strong>
+              <button id="newIssueButton" class="text-action">New issue</button>
+            </div>
+            <label for="reportInput">Describe the issue or change</label>
+            <textarea id="reportInput" rows="4"
+              placeholder="What should Clay fix or change?"></textarea>
+            <div id="reportError" class="report-error" aria-live="polite"></div>
+            <div class="composer-footer">
+              <div class="evidence-summary" title="Captured automatically with every report">
+                Screenshot · Console · Network
+              </div>
+              <button id="reportButton" class="report-button">Report</button>
+            </div>
+          </div>
+        </section>
+      </div>
     </main>
 
     <footer class="panel-footer">
@@ -126,6 +188,7 @@
       <span>Pairing and report data stay server-authorized</span>
     </footer>
   </div>
+  <script src="devtools-live-workspace.js"></script>
   <script src="devtools-panel.js"></script>
 </body>
 </html>

@@ -3,13 +3,6 @@
     return /^#[0-9a-f]{6}$/i.test(String(value || "")) ? value : "#55A7FF";
   }
 
-  function statusIcon(status) {
-    if (status === "completed") return "✓";
-    if (status === "needs_input") return "?";
-    if (status === "failed") return "!";
-    return "●";
-  }
-
   function sourceFile(report) {
     var component = report && report.locator && report.locator.component;
     return component && component.source ? component.source.file || "" : "";
@@ -35,9 +28,14 @@
     var reports = {};
     var focusedId = null;
     var hmrClearTimer = null;
+    var hmr = { status: "", message: "" };
 
     function reportValues() {
       return Object.keys(reports).map(function (id) { return reports[id]; });
+    }
+
+    function get(reportId) {
+      return reportId && reports[reportId] ? reports[reportId] : null;
     }
 
     function resolveReport(report) {
@@ -69,9 +67,8 @@
         options.highlightLayer.querySelectorAll(".worker-outline"));
       var outlineIndex = Math.max(0, siblings.indexOf(outline));
       var offset = (outlineIndex % 4) * 3;
-      if (rect.width <= 0 || rect.height <= 0 ||
-          rect.bottom <= 0 || rect.right <= 0 ||
-          rect.top >= innerHeight || rect.left >= innerWidth) {
+      if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 ||
+          rect.right <= 0 || rect.top >= innerHeight || rect.left >= innerWidth) {
         outline.hidden = true;
         return;
       }
@@ -85,12 +82,11 @@
       outline.classList.toggle("focused", report.reportId === focusedId);
       var label = outline.querySelector(".worker-outline-label");
       label.style.top = (-25 - ((outlineIndex % 4) * 22)) + "px";
-      label.textContent =
-        report.worker && report.worker.label ? report.worker.label : "Clay worker";
+      label.textContent = report.worker && report.worker.label ?
+        report.worker.label : "Clay worker";
     }
 
     function refreshHighlights() {
-      if (!options.highlightLayer) return;
       var visible = {};
       var values = reportValues();
       for (var i = 0; i < values.length; i++) {
@@ -107,136 +103,67 @@
       }
     }
 
-    function aggregateStatus(counts) {
-      if (counts.needs_input) return "needs_input";
-      if (counts.failed) return "failed";
-      if (counts.working) return "working";
-      if (counts.completed) return "completed";
-      return "";
-    }
-
     function focused() {
-      return focusedId && reports[focusedId] ? reports[focusedId] : null;
+      return get(focusedId);
     }
 
     function focus(reportId) {
-      focusedId = reportId && reports[reportId] ? reportId : null;
-      render();
-      if (options.onFocus) options.onFocus(focused());
-    }
-
-    function reportAction(label, className, action) {
-      var button = document.createElement("button");
-      button.type = "button";
-      button.className = "report-action " + className;
-      button.textContent = label;
-      button.addEventListener("click", action);
-      return button;
-    }
-
-    function renderReport(report, status) {
-      var shell = document.createElement("div");
-      shell.className = "report-shell";
-      var row = document.createElement("button");
-      row.type = "button";
-      row.className = "report " + status +
-        (report.reportId === focusedId ? " focused" : "");
-      row.style.setProperty("--worker-color", safeColor(
-        report.worker && report.worker.color));
-      row.dataset.reportId = report.reportId;
-      row.innerHTML =
-        '<span class="report-icon">' + statusIcon(status) + '</span>' +
-        '<span class="report-copy"><strong class="report-title"></strong>' +
-        '<span class="report-meta"></span><span class="report-message"></span>' +
-        '<span class="report-hmr"></span></span>';
-      row.querySelector(".report-title").textContent = report.title || "Live UI report";
-      row.querySelector(".report-meta").textContent = [
-        report.worker && report.worker.label,
-        sourceFile(report) || null,
-      ].filter(function (part) { return !!part; }).join(" · ");
-      row.querySelector(".report-message").textContent =
-        report.message || "Being worked on.";
-      var hmr = row.querySelector(".report-hmr");
-      hmr.textContent = report.hmrMessage || "";
-      hmr.hidden = !report.hmrMessage;
-      row.addEventListener("click", function () {
-        focus(report.reportId === focusedId ? null : report.reportId);
-      });
-      shell.appendChild(row);
-      var actions = document.createElement("div");
-      actions.className = "report-actions";
-      actions.appendChild(reportAction("Add feedback", "feedback", function () {
-        focus(report.reportId);
-      }));
-      if (status === "completed") {
-        actions.appendChild(reportAction("Approve", "approve", function () {
-          if (options.onApprove) options.onApprove(report);
-        }));
-      }
-      shell.appendChild(actions);
-      return shell;
-    }
-
-    function renderAggregate(counts) {
-      var parts = [];
-      if (counts.working) parts.push(counts.working + " working");
-      if (counts.needs_input) parts.push(counts.needs_input + " need input");
-      if (counts.failed) parts.push(counts.failed + " failed");
-      if (counts.completed) parts.push(counts.completed + " done");
-      var aggregate = aggregateStatus(counts);
-      var dots = options.aggregateDots || [options.aggregateDot];
-      var labels = options.aggregateLabels || [options.aggregateLabel];
-      for (var i = 0; i < dots.length; i++) {
-        dots[i].className = "aggregate-dot" + (aggregate ? " " + aggregate : "");
-      }
-      for (var j = 0; j < labels.length; j++) {
-        labels[j].textContent = parts.length ?
-          parts.join(" · ") : (options.isConnected() ? "Ready" : "Disconnected");
-      }
-    }
-
-    function render() {
-      var values = reportValues();
-      options.reportCount.textContent = String(values.length);
-      options.reportList.innerHTML = "";
-      var counts = { working: 0, needs_input: 0, completed: 0, failed: 0 };
-      if (!values.length) {
-        var empty = document.createElement("div");
-        empty.className = "reports-empty";
-        empty.textContent = "Pick a component and report the first change.";
-        options.reportList.appendChild(empty);
-      }
-      for (var i = 0; i < values.length; i++) {
-        var report = values[i];
-        var status = counts[report.status] === undefined ? "working" : report.status;
-        counts[status]++;
-        options.reportList.appendChild(renderReport(report, status));
-      }
-      renderAggregate(counts);
+      focusedId = get(reportId) ? reportId : null;
       refreshHighlights();
+      if (options.onFocus) options.onFocus(focused());
     }
 
     function upsert(report) {
       if (!report || !report.reportId) return;
-      reports[report.reportId] = Object.assign(
-        {}, reports[report.reportId] || {}, report);
-      render();
+      reports[report.reportId] = Object.assign({}, reports[report.reportId] || {}, report);
+      refreshHighlights();
     }
 
     function replace(nextReports) {
       reports = {};
       var values = Array.isArray(nextReports) ? nextReports : [];
-      for (var i = 0; i < values.length; i++) upsert(values[i]);
+      for (var i = 0; i < values.length; i++) {
+        if (values[i] && values[i].reportId) reports[values[i].reportId] = values[i];
+      }
       if (focusedId && !reports[focusedId]) focusedId = null;
-      render();
+      refreshHighlights();
     }
 
     function remove(reportId) {
       var wasFocused = focusedId === reportId;
       delete reports[reportId];
       if (wasFocused) focusedId = null;
-      render();
+      refreshHighlights();
       if (wasFocused && options.onFocus) options.onFocus(null);
+    }
+
+    function counts() {
+      var result = { working: 0, needs_input: 0, completed: 0, failed: 0 };
+      var values = reportValues();
+      for (var i = 0; i < values.length; i++) {
+        var status = result[values[i].status] === undefined ? "working" : values[i].status;
+        result[status]++;
+      }
+      return result;
+    }
+
+    function aggregateStatus(value) {
+      if (value.needs_input) return "needs_input";
+      if (value.failed) return "failed";
+      if (value.working) return "working";
+      if (value.completed) return "completed";
+      return "";
+    }
+
+    function snapshot() {
+      var statusCounts = counts();
+      return {
+        reports: reportValues(),
+        focusedId: focusedId,
+        counts: statusCounts,
+        aggregateStatus: aggregateStatus(statusCounts),
+        hmr: hmr,
+      };
     }
 
     function pulse(report) {
@@ -261,13 +188,9 @@
     }
 
     function handleHmr(status, payload) {
-      var message = hmrMessage(status, payload);
-      options.hmrState.textContent = message;
-      options.hmrState.className = "hmr-state " + status;
-      options.hmrState.hidden = !message;
+      hmr = { status: status, message: hmrMessage(status, payload) };
       var files = payload && Array.isArray(payload.files) ? payload.files : [];
-      var values = reportValues();
-      var working = values.filter(function (report) {
+      var working = reportValues().filter(function (report) {
         return report.status === "working";
       });
       var matched = working.filter(function (report) {
@@ -275,35 +198,36 @@
       });
       if (!matched.length && !files.length && working.length === 1) matched = working;
       for (var i = 0; i < matched.length; i++) {
-        matched[i].hmrMessage = message;
+        matched[i].hmrMessage = hmr.message;
         if (status === "applied") pulse(matched[i]);
       }
       if (hmrClearTimer) clearTimeout(hmrClearTimer);
       if (status === "applied") {
         hmrClearTimer = setTimeout(function () {
-          options.hmrState.hidden = true;
+          hmr = { status: "", message: "" };
         }, 4500);
       }
-      render();
+      refreshHighlights();
     }
 
     function clear() {
       reports = {};
       focusedId = null;
+      hmr = { status: "", message: "" };
       if (hmrClearTimer) clearTimeout(hmrClearTimer);
       options.highlightLayer.innerHTML = "";
-      render();
     }
 
     return {
       clear: clear,
       focus: focus,
       focused: focused,
+      get: get,
       handleHmr: handleHmr,
       refreshHighlights: refreshHighlights,
-      render: render,
       replace: replace,
       remove: remove,
+      snapshot: snapshot,
       upsert: upsert,
     };
   }

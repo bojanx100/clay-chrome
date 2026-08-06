@@ -13,6 +13,7 @@ function fakeElement(id) {
     textContent: "",
     className: "",
     disabled: false,
+    style: { setProperty: function () {} },
     children: [],
     classList: {
       add: function (name) { classes[name] = true; },
@@ -24,7 +25,9 @@ function fakeElement(id) {
       if (!value && child.value !== undefined) value = String(child.value);
     },
     addEventListener: function (name, listener) { listeners[name] = listener; },
-    dispatch: function (name) { listeners[name](); },
+    dispatch: function (name, event) { listeners[name](event || {}); },
+    click: function () { if (listeners.click) listeners.click({}); },
+    focus: function () { element.focused = true; },
   };
   Object.defineProperty(element, "value", {
     get: function () { return value; },
@@ -37,17 +40,23 @@ function fakeElement(id) {
   return element;
 }
 
-function panelHarness() {
+function panelHarness(options) {
+  options = options || {};
   var ids = [
     "connectionBadge", "connectionLabel", "targetTitle", "targetUrl",
     "tabNumber", "projectSelect", "sessionSelect", "startButton",
-    "exitButton", "panelStatus", "inactiveView", "activeView",
-    "activeSession", "activeProject", "activeRouteLabel",
+    "exitButton", "panelStatus", "setupWorkspace", "liveWorkspace",
+    "liveSession", "liveProject", "liveAggregateDot", "liveAggregateLabel",
+    "selectedCard", "emptySelectionCard", "selectedTitle", "selectedSource",
+    "selectedElement", "selectedChain", "clearSelectionButton", "pickButton",
+    "hmrStatus", "hmrLabel", "reportCount", "reportList", "emptyReports",
+    "followupTarget", "followupLabel", "newIssueButton", "reportInput",
+    "reportError", "reportButton",
   ];
   var elements = {};
   for (var i = 0; i < ids.length; i++) elements[ids[i]] = fakeElement(ids[i]);
   var messages = [];
-  var state = {
+  var state = options.state || {
     ok: true,
     activeTab: { id: 43, title: "Account", url: "http://localhost:4242/account" },
     controls: [{
@@ -72,7 +81,10 @@ function panelHarness() {
         lastError: null,
         sendMessage: function (message, callback) {
           messages.push(message);
-          callback(message.type === "live_ui_picker_get_state" ? state : { ok: true });
+          if (message.type === "live_ui_picker_get_state") callback(state);
+          else if (message.type === "live_ui_devtools_command" &&
+              message.action === "snapshot") callback(options.snapshot || { ok: false });
+          else callback({ ok: true });
         },
       },
     },
@@ -87,8 +99,9 @@ function panelHarness() {
     setTimeout: function () { return 1; },
     URL: URL,
   };
-  var source = fs.readFileSync(
-    path.join(__dirname, "..", "devtools-panel.js"), "utf8");
+  var source = fs.readFileSync(path.join(
+    __dirname, "..", "devtools-live-workspace.js"), "utf8") + "\n" +
+    fs.readFileSync(path.join(__dirname, "..", "devtools-panel.js"), "utf8");
   vm.runInNewContext(source, context);
   return { elements: elements, messages: messages };
 }
@@ -110,6 +123,67 @@ test("DevTools entrypoint creates a Clay panel", function () {
     icon: "icons/icon-48.png",
     page: "devtools-panel.html",
   });
+});
+
+test("active DevTools workspace owns selection and report controls", function () {
+  var state = {
+    ok: true,
+    activeTab: { id: 43, title: "Account", url: "http://localhost:4242/account" },
+    controls: [],
+    pairings: [{
+      pairingId: "pair-1",
+      targetTabId: 43,
+      projectLabel: "Webapp",
+      sessionLabel: "Fix account page",
+    }],
+    recentPairings: [],
+    status: null,
+  };
+  var harness = panelHarness({
+    state: state,
+    snapshot: {
+      ok: true,
+      pairingId: "pair-1",
+      projectLabel: "Webapp",
+      sessionLabel: "Fix account page",
+      connected: true,
+      selecting: false,
+      submitting: false,
+      acceptedSequence: 0,
+      selection: {
+        title: "AccountClock",
+        source: "src/AccountClock.jsx:17",
+        element: "<button> · “Time”",
+        chain: "App › AccountClock",
+      },
+      composeError: "",
+      reports: [],
+      counts: {},
+      aggregateStatus: "",
+      hmr: { status: "ready", message: "Fast Refresh ready" },
+    },
+  });
+  assert.strictEqual(harness.elements.selectedTitle.textContent, "AccountClock");
+  assert.strictEqual(harness.elements.liveSession.textContent, "Fix account page");
+  assert.strictEqual(harness.elements.setupWorkspace.classList.contains("hidden"), true);
+
+  harness.elements.pickButton.dispatch("click");
+  var pick = harness.messages.filter(function (message) {
+    return message.type === "live_ui_devtools_command" &&
+      message.action === "selection.pick";
+  })[0];
+  assert.ok(pick);
+  assert.strictEqual(pick.pairingId, "pair-1");
+  assert.strictEqual(pick.targetTabId, 43);
+
+  harness.elements.reportInput.value = "Increase the clock contrast";
+  harness.elements.reportButton.dispatch("click");
+  var report = harness.messages.filter(function (message) {
+    return message.type === "live_ui_devtools_command" &&
+      message.action === "report.submit";
+  })[0];
+  assert.ok(report);
+  assert.strictEqual(report.payload.text, "Increase the clock contrast");
 });
 
 test("panel routes state and pairing to the exact inspected tab", function () {
@@ -135,6 +209,8 @@ test("DevTools surface stays bounded and avoids browser-side settings", function
   var manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
   var html = fs.readFileSync(path.join(root, "devtools-panel.html"), "utf8");
   var panel = fs.readFileSync(path.join(root, "devtools-panel.js"), "utf8");
+  var workspace = fs.readFileSync(
+    path.join(root, "devtools-live-workspace.js"), "utf8");
   var entry = fs.readFileSync(path.join(root, "devtools.js"), "utf8");
   var target = fs.readFileSync(path.join(root, "live-ui-picker-target.js"), "utf8");
   var background = fs.readFileSync(path.join(root, "background.js"), "utf8");
@@ -143,15 +219,25 @@ test("DevTools surface stays bounded and avoids browser-side settings", function
   assert.match(html, /Screenshot/);
   assert.match(html, /Console/);
   assert.match(html, /Network/);
+  assert.match(html, /Selected component/);
+  assert.match(html, /Worker changes/);
+  assert.match(html, /Pick component/);
+  assert.match(html, /Describe the issue or change/);
   assert.match(panel, /chrome\.devtools\.inspectedWindow\.tabId/);
   assert.match(panel, /targetTabId: inspectedTabId/);
+  assert.match(panel, /live_ui_devtools_command/);
+  assert.match(workspace, /report\.submit/);
+  assert.match(workspace, /report\.approve/);
+  assert.doesNotMatch(html + workspace, /collapse|expand/i);
   assert.match(panel, /document\.activeElement === sessionSelect/);
   assert.match(panel, /projectActive = document\.activeElement === projectSelect/);
   assert.match(entry, /chrome\.devtools\.panels\.create/);
   assert.ok(background.indexOf("live-ui-picker-target.js") <
     background.indexOf("live-ui-picker-background.js"));
+  assert.match(background, /live-ui-devtools-background\.js/);
   assert.ok(panel.split("\n").length < 500);
+  assert.ok(workspace.split("\n").length < 500);
   assert.ok(target.split("\n").length < 500);
   assert.doesNotMatch(panel, /localStorage/);
-  assert.doesNotMatch(panel + entry + target, /\b(?:const|let)\b|=>/);
+  assert.doesNotMatch(panel + workspace + entry + target, /\b(?:const|let)\b|=>/);
 });
