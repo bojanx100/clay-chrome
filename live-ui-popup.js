@@ -216,7 +216,7 @@ function renderConnectedSetup(activeTab, controls) {
   }
 }
 
-function renderSetupState(activeTab, controls) {
+function renderSetupState(activeTab, controls, discoveringClay) {
   if (activeTabIsClay(activeTab, controls)) {
     liveUiBadge.textContent = "Connected";
     liveUiBadge.className = "live-ui-badge connected";
@@ -229,18 +229,23 @@ function renderSetupState(activeTab, controls) {
     return;
   }
   if (!controls.length) {
-    liveUiBadge.textContent = "Needs Clay";
+    liveUiBadge.textContent = discoveringClay ? "Finding Clay" : "Needs Clay";
     liveUiBadge.className = "live-ui-badge";
     liveUiProjectSelect.disabled = true;
     liveUiSessionSelect.disabled = true;
     liveUiStartBtn.disabled = true;
-    if (looksLikeClayPage(activeTab)) {
+    if (discoveringClay) {
+      liveUiConnectBtn.classList.add("hidden");
+      liveUiHint.textContent =
+        "Connecting to the open Clay project tab automatically…";
+    } else if (looksLikeClayPage(activeTab)) {
       liveUiConnectBtn.classList.remove("hidden");
-      liveUiHint.textContent = "Connect this Clay tab once, then return to the web app.";
+      liveUiHint.textContent =
+        "Clay should connect automatically. Use this only if discovery stalls.";
     } else {
       liveUiConnectBtn.classList.add("hidden");
       liveUiHint.textContent =
-        "Open a Clay project in another tab, connect the extension there, then return here.";
+        "Open a Clay project in another tab; the extension will connect automatically.";
     }
     return;
   }
@@ -279,7 +284,7 @@ function renderLiveUi(state) {
   liveUiSetup.classList.remove("hidden");
   var controls = state.controls || [];
   renderLiveUiOptions(controls);
-  renderSetupState(activeTab, controls);
+  renderSetupState(activeTab, controls, state.discoveringClay);
   renderPickerStatus(state.status);
 }
 

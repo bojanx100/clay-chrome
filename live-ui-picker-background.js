@@ -87,21 +87,14 @@
       favIconUrl: String(tab.favIconUrl || ""),
     };
   }
-  function looksLikeClayPage(url) {
-    try {
-      var parsed = new URL(url);
-      return (parsed.protocol === "http:" || parsed.protocol === "https:") &&
-        /^\/p\/[a-z0-9_-]+\/?(?:$|[?#])/.test(parsed.pathname + parsed.search + parsed.hash);
-    } catch (error) {
-      return false;
-    }
-  }
-  function createPicker(chromeApi, runtime, getPort, getPortIds) {
+  function createPicker(chromeApi, runtime, getPort, getPortIds, discoveryModule) {
     var identities = {};
     var pendingPairs = {};
     var pendingConnections = {};
     var status = null;
     var counter = 0;
+    var discovery = discoveryModule && discoveryModule.createDiscovery(
+      chromeApi, getPort, requestIdentity);
     function mergeIdentity(previous, next) {
       if (!previous || previous.serverOrigin !== next.serverOrigin) return next;
       for (var i = 0; i < next.projects.length; i++) {
@@ -214,9 +207,11 @@
       } catch (error) {}
     }
     function handlePortConnected(tabId) {
+      if (discovery) discovery.handlePortConnected(tabId);
       requestIdentity(tabId);
     }
     function handlePortDisconnected(tabId) {
+      if (discovery) discovery.handlePortDisconnected(tabId);
       delete identities[tabId];
       finishConnection(tabId, {
         ok: false,
@@ -272,6 +267,7 @@
       return false;
     }
     function handleTabUpdated(tabId, changeInfo, tab) {
+      if (discovery) discovery.handleTabUpdated(tabId, changeInfo);
       var pending = pendingPairs[tabId];
       if (!pending || changeInfo.status !== "complete") return;
       var expected = pending.serverOrigin + "/p/" +
@@ -303,13 +299,23 @@
     function pickerState(sendResponse) {
       chromeApi.tabs.query({ active: true, currentWindow: true }, function (tabs) {
         var activeTab = tabs && tabs[0] ? publicTab(tabs[0]) : null;
-        sendResponse({
-          ok: true,
-          activeTab: activeTab,
-          controls: controls(),
-          pairings: runtime.getPairings(),
-          status: status,
-        });
+        var connectedControls = controls();
+        function respond(discoveryState) {
+          sendResponse({
+            ok: true,
+            activeTab: activeTab,
+            controls: connectedControls,
+            pairings: runtime.getPairings(),
+            status: status,
+            discoveringClay: !!(discoveryState &&
+              discoveryState.candidateCount),
+          });
+        }
+        if (!connectedControls.length && discovery) {
+          discovery.discover(respond);
+          return;
+        }
+        respond(null);
       });
     }
     function pair(message, sendResponse) {
@@ -418,7 +424,8 @@
     function connectCurrent(sendResponse) {
       chromeApi.tabs.query({ active: true, currentWindow: true }, function (tabs) {
         var tab = tabs && tabs[0] ? publicTab(tabs[0]) : null;
-        if (!tab || !looksLikeClayPage(tab.url)) {
+        if (!tab || !discoveryModule ||
+            !discoveryModule.isClayProjectUrl(tab.url)) {
           sendResponse({
             ok: false,
             error: "Open Clay to a project in this tab first, then connect it.",

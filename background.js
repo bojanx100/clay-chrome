@@ -3,6 +3,7 @@
 // Bridges local MCP servers to Clay via Native Messaging
 importScripts("live-ui-evidence.js", "live-ui-react-background.js",
   "live-ui-background.js",
+  "live-ui-picker-discovery.js",
   "live-ui-picker-background.js");
 
 // --- State ---
@@ -156,7 +157,8 @@ var liveUiPicker = ClayLiveUiPickerBackground.createPicker(
   chrome,
   liveUiRuntime,
   function (tabId) { return clayPorts[tabId] || null; },
-  function () { return Object.keys(clayPorts); }
+  function () { return Object.keys(clayPorts); },
+  ClayLiveUiPickerDiscovery
 );
 
 chrome.runtime.onConnect.addListener(function (port) {

@@ -3,13 +3,15 @@ var assert = require("node:assert");
 var fs = require("node:fs");
 var path = require("node:path");
 var pickerModule = require("../live-ui-picker-background");
+var discoveryModule = require("../live-ui-picker-discovery");
 
-function harness() {
+function harness(options) {
+  options = options || {};
   var portMessages = [];
   var exitCalls = [];
   var updateCalls = [];
   var scriptCalls = [];
-  var ports = {
+  var ports = options.connected === false ? {} : {
     7: {
       postMessage: function (message) { portMessages.push(message); },
     },
@@ -47,9 +49,10 @@ function harness() {
     chromeApi,
     runtime,
     function (tabId) { return ports[tabId] || null; },
-    function () { return Object.keys(ports); }
+    function () { return Object.keys(ports); },
+    discoveryModule
   );
-  picker.handlePortMessage(7, {
+  if (options.connected !== false) picker.handlePortMessage(7, {
     type: "clay_live_ui_identity",
     identity: {
       serverOrigin: "http://100.100.10.20:2633",
@@ -203,6 +206,40 @@ test("picker does not connect a normal localhost app as Clay", function () {
   assert.deepStrictEqual(state.scriptCalls, []);
 });
 
+test("picker automatically discovers an open Clay project tab", function () {
+  var state = harness({ connected: false });
+  var response = null;
+  state.picker.handlePopupMessage({
+    type: "live_ui_picker_get_state",
+  }, function (value) { response = value; });
+  assert.strictEqual(response.discoveringClay, true);
+  assert.deepStrictEqual(state.scriptCalls, [{
+    target: { tabId: 7 },
+    files: ["content.js"],
+  }]);
+
+  state.reconnect(7);
+  state.picker.handlePortConnected(7);
+  state.picker.handlePortMessage(7, {
+    type: "clay_live_ui_identity",
+    identity: {
+      serverOrigin: "http://100.100.10.20:2633",
+      currentProjectSlug: "clay",
+      projectSlug: "clay",
+      projectLabel: "Clay",
+      projects: [{
+        projectSlug: "clay",
+        projectLabel: "Clay",
+        sessions: [{ id: 11, title: "Live UI work" }],
+      }],
+    },
+  });
+  state.picker.handlePopupMessage({
+    type: "live_ui_picker_get_state",
+  }, function (value) { response = value; });
+  assert.strictEqual(response.controls.length, 1);
+});
+
 test("picker pins the active web tab to an explicitly selected session", function () {
   var state = harness();
   var response = null;
@@ -310,12 +347,17 @@ test("picker implementation stays bounded and avoids credential storage", functi
   var background = fs.readFileSync(
     path.join(__dirname, "..", "background.js"), "utf8"
   );
+  var discovery = fs.readFileSync(
+    path.join(__dirname, "..", "live-ui-picker-discovery.js"), "utf8"
+  );
   assert.ok(source.split("\n").length < 500);
   assert.ok(popup.split("\n").length < 500);
+  assert.ok(discovery.split("\n").length < 500);
   assert.ok(html.indexOf("liveUiProjectSelect") < html.indexOf("liveUiSessionSelect"));
   assert.match(popup, /projectSlug: selected\.projectSlug/);
   assert.match(popup, /live_ui_picker_load_project/);
   assert.match(background, /liveUiPicker\.handleTabUpdated/);
+  assert.match(background, /live-ui-picker-discovery\.js/);
   assert.doesNotMatch(source, /storage\.local/);
   assert.doesNotMatch(popup, /localStorage/);
 });
