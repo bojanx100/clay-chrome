@@ -305,7 +305,7 @@
             ok: true,
             activeTab: activeTab,
             controls: connectedControls,
-            pairings: runtime.getPairings(),
+            pairings: runtime.getPairings(), recentPairings: runtime.getRecentPairings(),
             status: status,
             discoveringClay: !!(discoveryState &&
               discoveryState.candidateCount),

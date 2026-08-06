@@ -17,10 +17,19 @@ var liveUiProjects = [];
 var liveUiState = null;
 var liveUiPoll = null;
 var liveUiRequestedProjects = {};
+var liveUiRecovery = null;
 
 function setLiveUiStatus(text, kind) {
   liveUiStatus.textContent = text || "";
   liveUiStatus.className = "live-ui-status" + (kind ? " " + kind : "");
+}
+
+function liveUiErrorText(error) {
+  if (error === "Start the session's local development server before opening Live UI") {
+    return "The selected chat does not own the development server for this tab. " +
+      "Choose the chat that started it, or start its server.";
+  }
+  return error || "Live UI could not start.";
 }
 
 function activePairing(state) {
@@ -30,6 +39,15 @@ function activePairing(state) {
     if (Number(pairings[i].targetTabId) === Number(state.activeTab.id)) {
       return pairings[i];
     }
+  }
+  return null;
+}
+
+function recentPairing(state) {
+  if (!state || !state.activeTab) return null;
+  var recent = state.recentPairings || [];
+  for (var i = 0; i < recent.length; i++) {
+    if (Number(recent[i].targetTabId) === Number(state.activeTab.id)) return recent[i];
   }
   return null;
 }
@@ -127,37 +145,49 @@ function requestProjectSessions(project) {
   });
 }
 
-function renderLiveUiOptions(controls) {
+function projectIndexForSelection(previousKey, preferredPairing) {
+  var currentIndex = -1;
+  var preferredIndex = -1;
+  var preferredExactIndex = -1;
+  for (var pi = 0; pi < liveUiProjects.length; pi++) {
+    var project = liveUiProjects[pi];
+    if (project.key === previousKey) return pi;
+    if (currentIndex < 0 && project.current) currentIndex = pi;
+    if (!preferredPairing || project.projectSlug !== preferredPairing.projectSlug) continue;
+    if (preferredIndex < 0) preferredIndex = pi;
+    if (Number(project.controlTabId) === Number(preferredPairing.clayTabId)) {
+      preferredExactIndex = pi;
+    }
+  }
+  if (preferredExactIndex >= 0) return preferredExactIndex;
+  if (preferredIndex >= 0) return preferredIndex;
+  return currentIndex >= 0 ? currentIndex : 0;
+}
+
+function sessionIdForSelection(previousSessionId, preferredPairing) {
+  if (previousSessionId !== null) return previousSessionId;
+  return preferredPairing ? preferredPairing.sessionId : null;
+}
+
+function renderLiveUiOptions(controls, preferredPairing) {
   var previousProject = liveUiProjects[Number(liveUiProjectSelect.value)] || null;
   var previousSession = liveUiOptions[Number(liveUiSessionSelect.value)] || null;
   var previousKey = previousProject ? previousProject.key : null;
   var previousSessionId = previousSession ? previousSession.sessionId : null;
   liveUiProjects = collectLiveUiProjects(controls);
   liveUiProjectSelect.innerHTML = "";
-  var selectedProjectIndex = 0;
-  var hasPreviousProject = false;
   for (var pi = 0; pi < liveUiProjects.length; pi++) {
     var project = liveUiProjects[pi];
     var option = document.createElement("option");
     option.value = String(pi);
     option.textContent = project.projectLabel;
     liveUiProjectSelect.appendChild(option);
-    if (project.key === previousKey) {
-      selectedProjectIndex = pi;
-      hasPreviousProject = true;
-    }
   }
-  if (!hasPreviousProject) {
-    for (var ci = 0; ci < liveUiProjects.length; ci++) {
-      if (liveUiProjects[ci].current) {
-        selectedProjectIndex = ci;
-        break;
-      }
-    }
-  }
+  var selectedProjectIndex = projectIndexForSelection(previousKey, preferredPairing);
   liveUiProjectSelect.value = String(selectedProjectIndex);
   var selectedProject = liveUiProjects[selectedProjectIndex] || null;
-  renderSessionOptions(selectedProject, previousSessionId);
+  var desiredSessionId = sessionIdForSelection(previousSessionId, preferredPairing);
+  renderSessionOptions(selectedProject, desiredSessionId);
   requestProjectSessions(selectedProject);
 }
 
@@ -209,9 +239,15 @@ function renderConnectedSetup(activeTab, controls) {
     } else if (project && project.sessionsError) {
       liveUiHint.textContent = project.sessionsError;
     } else {
-      liveUiHint.textContent = liveUiOptions.length
-        ? "Choose a visible top-level chat. Workers are intentionally omitted."
-        : "This project has no visible top-level chats.";
+      var selected = liveUiOptions[Number(liveUiSessionSelect.value)] || null;
+      var restored = selected && liveUiRecovery &&
+        selected.projectSlug === liveUiRecovery.projectSlug &&
+        String(selected.sessionId) === String(liveUiRecovery.sessionId);
+      liveUiHint.textContent = restored ?
+        "Previous Live UI chat restored. Start to reconnect." :
+        liveUiOptions.length ?
+          "Choose a visible top-level chat. Workers are intentionally omitted." :
+          "This project has no visible top-level chats.";
     }
   }
 }
@@ -255,7 +291,7 @@ function renderSetupState(activeTab, controls, discoveringClay) {
 function renderPickerStatus(pickerStatus) {
   if (!pickerStatus) return;
   if (pickerStatus.state === "error") {
-    setLiveUiStatus(pickerStatus.error || "Live UI could not start.", "error");
+    setLiveUiStatus(liveUiErrorText(pickerStatus.error), "error");
     return;
   }
   if (pickerStatus.state === "switching_project") {
@@ -283,7 +319,8 @@ function renderLiveUi(state) {
   liveUiActive.classList.add("hidden");
   liveUiSetup.classList.remove("hidden");
   var controls = state.controls || [];
-  renderLiveUiOptions(controls);
+  liveUiRecovery = recentPairing(state);
+  renderLiveUiOptions(controls, liveUiRecovery);
   renderSetupState(activeTab, controls, state.discoveringClay);
   renderPickerStatus(state.status);
 }
@@ -319,8 +356,7 @@ liveUiStartBtn.addEventListener("click", function () {
     sessionId: selected.sessionId,
   }, function (response) {
     if (chrome.runtime.lastError || !response || !response.ok) {
-      setLiveUiStatus(response && response.error ?
-        response.error : "Live UI could not start.", "error");
+      setLiveUiStatus(liveUiErrorText(response && response.error), "error");
       liveUiStartBtn.disabled = false;
       return;
     }

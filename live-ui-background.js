@@ -1,5 +1,6 @@
 (function (root) {
   var STORAGE_KEY = "clayLiveUiPairingsV1";
+  var RECENT_KEY = "clayLiveUiRecentPairingsV1";
   var evidence = root.ClayLiveUiEvidence;
   if (!evidence && typeof require === "function") evidence = require("./live-ui-evidence");
   var reactBridge = root.ClayLiveUiReactBackground;
@@ -38,6 +39,24 @@
       reactBridge.inspectReactComponent(chromeApi, pairing, payload, callback);
     };
     var pairings = {};
+    var recentPairings = {};
+    function recoveryMetadata(pairing) {
+      return {
+        clayTabId: pairing.clayTabId,
+        targetTabId: pairing.targetTabId,
+        allowedOrigin: pairing.allowedOrigin,
+        projectLabel: pairing.projectLabel || null,
+        sessionLabel: pairing.sessionLabel || null,
+        projectSlug: pairing.projectSlug || null,
+        sessionId: pairing.sessionId || null,
+      };
+    }
+    function remember(pairing) {
+      recentPairings[String(pairing.targetTabId)] = recoveryMetadata(pairing);
+    }
+    function forget(pairing) {
+      delete recentPairings[String(pairing.targetTabId)];
+    }
     function save() {
       var stored = {};
       var ids = Object.keys(pairings);
@@ -59,12 +78,19 @@
       }
       var value = {};
       value[STORAGE_KEY] = stored;
+      value[RECENT_KEY] = recentPairings;
       chromeApi.storage.session.set(value);
     }
 
     function restore() {
-      chromeApi.storage.session.get(STORAGE_KEY, function (result) {
+      chromeApi.storage.session.get([STORAGE_KEY, RECENT_KEY], function (result) {
         pairings = result && result[STORAGE_KEY] ? result[STORAGE_KEY] : {};
+        recentPairings = result && result[RECENT_KEY] ? result[RECENT_KEY] : {};
+        var ids = Object.keys(pairings);
+        for (var i = 0; i < ids.length; i++) {
+          var pairing = pairings[ids[i]];
+          if (!recentPairings[String(pairing.targetTabId)]) remember(pairing);
+        }
       });
     }
 
@@ -172,6 +198,8 @@
             save();
           } else {
             pairing.nonce = null;
+            remember(pairing);
+            save();
           }
           callback(result);
         });
@@ -186,6 +214,7 @@
         pairingId: pairing.pairingId,
       }, function () {});
       delete pairings[pairing.pairingId];
+      forget(pairing);
       save();
       callback({ ok: true });
     }
@@ -197,6 +226,7 @@
       sendToTarget(pairing, { type: "live_ui_destroy",
         pairingId: pairing.pairingId }, function () {});
       delete pairings[pairing.pairingId];
+      forget(pairing);
       save();
       callback({ ok: true });
     }
@@ -210,6 +240,12 @@
           projectLabel: pairing.projectLabel || "Clay project",
           sessionId: pairing.sessionId || null,
           sessionLabel: pairing.sessionLabel || "New chat" };
+      });
+    }
+
+    function getRecentPairings() {
+      return Object.keys(recentPairings).map(function (id) {
+        return recoveryMetadata(recentPairings[id]);
       });
     }
 
@@ -336,6 +372,7 @@
         if (!tab || originOf(tab.url) !== pairing.allowedOrigin) {
           sendToControl(pairing, lifecycleEnvelope(pairing, "target.closed", "origin_changed"));
           delete pairings[pairing.pairingId];
+          forget(pairing);
           save();
           continue;
         }
@@ -357,6 +394,7 @@
         if (pairing.targetTabId !== tabId && pairing.clayTabId !== tabId) continue;
         if (pairing.targetTabId === tabId) {
           sendToControl(pairing, lifecycleEnvelope(pairing, "target.closed", "tab_closed"));
+          forget(pairing);
         }
         delete pairings[pairing.pairingId];
       }
@@ -397,6 +435,7 @@
       unpair: unpair,
       exitPairing: exitPairing,
       getPairings: getPairings,
+      getRecentPairings: getRecentPairings,
       handleTargetMessage: handleTargetMessage,
       handleServerEnvelope: handleServerEnvelope,
       handleTabLoading: handleTabLoading,

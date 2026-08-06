@@ -40,6 +40,7 @@ function harness(options) {
   };
   var runtime = {
     getPairings: function () { return []; },
+    getRecentPairings: function () { return options.recentPairings || []; },
     exitPairing: function (pairingId, callback) {
       exitCalls.push(pairingId);
       callback({ ok: true });
@@ -99,7 +100,8 @@ function harness(options) {
 }
 
 test("picker exposes connected Clay sessions and the active target tab", function () {
-  var state = harness();
+  var recent = [{ targetTabId: 42, projectSlug: "clay", sessionId: 12 }];
+  var state = harness({ recentPairings: recent });
   var response = null;
   assert.strictEqual(state.picker.handlePopupMessage({
     type: "live_ui_picker_get_state",
@@ -109,6 +111,7 @@ test("picker exposes connected Clay sessions and the active target tab", functio
   assert.strictEqual(response.controls[0].projectSlug, "clay");
   assert.strictEqual(response.controls[0].projects.length, 2);
   assert.strictEqual(response.controls[0].sessions[0].title, "Live UI work");
+  assert.deepStrictEqual(response.recentPairings, recent);
 });
 
 test("picker keeps a connected Clay tab visible when no chats exist", function () {
@@ -356,6 +359,7 @@ test("picker implementation stays bounded and avoids credential storage", functi
   assert.ok(html.indexOf("liveUiProjectSelect") < html.indexOf("liveUiSessionSelect"));
   assert.match(popup, /projectSlug: selected\.projectSlug/);
   assert.match(popup, /live_ui_picker_load_project/);
+  assert.match(popup, /does not own the development server/);
   assert.match(background, /liveUiPicker\.handleTabUpdated/);
   assert.match(background, /live-ui-picker-discovery\.js/);
   assert.doesNotMatch(source, /storage\.local/);

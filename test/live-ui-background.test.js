@@ -7,7 +7,7 @@ var reactModule = require("../live-ui-react-background");
 
 function harness(options) {
   options = options || {};
-  var stored = {};
+  var stored = options.stored || {};
   var targetMessages = [];
   var controlMessages = [];
   var chromeApi = {
@@ -185,6 +185,7 @@ test("extension exit closes the overlay and notifies its pinned control", functi
   state.runtime.exitPairing("pair-1", function (value) { exitResult = value; });
   assert.deepStrictEqual(exitResult, { ok: true });
   assert.strictEqual(state.runtime.getPairings().length, 0);
+  assert.strictEqual(state.runtime.getRecentPairings().length, 0);
   assert.ok(state.controlMessages.some(function (message) {
     return message.envelope &&
       message.envelope.event === "target.closed" &&
@@ -193,6 +194,62 @@ test("extension exit closes the overlay and notifies its pinned control", functi
   assert.ok(state.targetMessages.some(function (entry) {
     return entry.message.type === "live_ui_destroy";
   }));
+});
+
+test("server revocation preserves safe metadata for one-click recovery", function () {
+  var state = harness();
+  state.runtime.pair({
+    protocolVersion: 1,
+    pairingId: "pair-recover",
+    targetTabId: 42,
+    allowedOrigin: "http://localhost:4242",
+    nonce: "secret-nonce",
+    reconnectCredential: "secret-reconnect",
+    projectLabel: "Webapp",
+    sessionLabel: "REDESIGN",
+    projectSlug: "webapp",
+    sessionId: "session-redesign",
+  }, function () {}, { clayTabId: 7 });
+
+  assert.strictEqual(state.runtime.handleServerEnvelope({
+    type: "live_ui_state",
+    protocolVersion: 1,
+    pairingId: "pair-recover",
+    state: "revoked",
+  }), true);
+  assert.strictEqual(state.runtime.getPairings().length, 0);
+  assert.deepStrictEqual(state.runtime.getRecentPairings(), [{
+    clayTabId: 7,
+    targetTabId: 42,
+    allowedOrigin: "http://localhost:4242",
+    projectLabel: "Webapp",
+    sessionLabel: "REDESIGN",
+    projectSlug: "webapp",
+    sessionId: "session-redesign",
+  }]);
+});
+
+test("restored active pairings acquire recovery metadata during upgrade", function () {
+  var state = harness({ stored: {
+    clayLiveUiPairingsV1: {
+      "pair-existing": {
+        pairingId: "pair-existing",
+        clayTabId: 7,
+        targetTabId: 42,
+        allowedOrigin: "http://localhost:4242",
+        protocolVersion: 1,
+        reconnectCredential: "secret-reconnect",
+        projectLabel: "Webapp",
+        sessionLabel: "REDESIGN",
+        projectSlug: "webapp",
+        sessionId: "session-redesign",
+      },
+    },
+  } });
+  assert.strictEqual(state.runtime.getPairings().length, 1);
+  assert.strictEqual(state.runtime.getRecentPairings().length, 1);
+  assert.strictEqual(state.runtime.getRecentPairings()[0].sessionLabel, "REDESIGN");
+  assert.strictEqual("reconnectCredential" in state.runtime.getRecentPairings()[0], false);
 });
 
 test("a new pairing replaces stale state for the same target tab", function () {
