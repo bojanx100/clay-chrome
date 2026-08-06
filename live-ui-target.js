@@ -25,11 +25,9 @@
     projectLabel: "Clay project",
     sessionLabel: "New chat",
   };
-
   function nextMessageId(prefix) {
     return prefix + "-" + Date.now() + "-" + (++state.sequence);
   }
-
   function sendEvent(event, payload, clientMessageId, callback) {
     if (!state.pairingId) {
       if (callback) callback({ ok: false, error: "Live UI is disconnected." });
@@ -228,13 +226,15 @@
     });
   }
 
-  function submitReport(text, reportId, callback) {
+  function submitReport(text, reportId, attachments, callback) {
     var reportText = String(text || "").trim().slice(0, 12000);
-    if (!reportText || state.submitting || !state.connected) {
-      callback({ ok: false, error: state.connected ?
-        "Describe the issue or change first." : "Live UI is disconnected." });
+    var hasAttachments = attachments && ((attachments.images &&
+      attachments.images.length) || (attachments.pastes && attachments.pastes.length));
+    if ((!reportText && !hasAttachments) || state.submitting || !state.connected) {
+      callback({ ok: false, error: state.connected ? "Describe the issue or paste supporting context first." : "Live UI is disconnected." });
       return;
     }
+    if (!reportText) reportText = "Review the pasted Live UI context.";
     if (reportId) {
       if (!state.reportManager.get(reportId)) {
         callback({ ok: false, error: "That worker change is no longer available." });
@@ -259,6 +259,7 @@
       };
       sendEvent("report.submit", Object.assign({
         text: reportText,
+        attachments: attachments || { images: [], pastes: [] },
         screenshot: evidence.screenshot,
         diagnostics: evidence.diagnostics,
       }, focusedReport ? { reportId: focusedReport.reportId } : {}),
@@ -275,7 +276,6 @@
       });
     });
   }
-
   function focusReport(report) {
     if (report && report.locator) restoreSelection(report.locator, true);
   }
@@ -355,7 +355,7 @@
       return false;
     }
     if (message.action === "report.submit") {
-      submitReport(payload.text, payload.reportId, sendResponse);
+      submitReport(payload.text, payload.reportId, payload.attachments, sendResponse);
       return true;
     }
     if (message.action === "report.approve") {

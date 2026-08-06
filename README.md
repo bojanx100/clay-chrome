@@ -73,14 +73,18 @@ selection or worker outlines afterward.
 3. Select the **Clay** DevTools panel.
 4. Choose a project, then a visible top-level chat or coordinator.
 5. Select **Start Live UI on inspected page**.
-6. Pick a component and report issues from the Clay panel. Each completed worker
-   remains available for testing, follow-up, or approval.
+6. Pick a component and report issues from the Clay panel. Paste screenshots,
+   other images, long text, logs, code, or text files directly into the report
+   composer. Each completed worker remains available for testing, follow-up, or
+   approval.
 
 The panel binds with `chrome.devtools.inspectedWindow.tabId`, so it remains
 attached to the inspected page even when another browser or Clay tab becomes
 active. Workers are intentionally omitted from the chat selector. Live UI
 reports automatically include a securely masked screenshot and bounded recent
-console/network evidence. Select **Exit Live UI** to revoke the pairing.
+console/network evidence. User-pasted images and text are separately previewed,
+removable, bounded before relay, and attached to the selected worker. Select
+**Exit Live UI** to revoke the pairing.
 
 ## Commands
 

@@ -6,6 +6,7 @@
   <title>Clay Live UI</title>
   <link rel="stylesheet" href="devtools-panel.css">
   <link rel="stylesheet" href="devtools-live-workspace.css">
+  <link rel="stylesheet" href="devtools-live-attachments.css">
 </head>
 <body>
   <div class="panel-shell">
@@ -170,7 +171,10 @@
             </div>
             <label for="reportInput">Describe the issue or change</label>
             <textarea id="reportInput" rows="4"
-              placeholder="What should Clay fix or change?"></textarea>
+              placeholder="What should Clay fix or change? Paste screenshots or other context here."></textarea>
+            <div id="attachmentList" class="attachment-list hidden"
+              aria-label="Pasted attachments"></div>
+            <div class="paste-hint">Paste screenshots, images, long text, logs, code, or text files</div>
             <div id="reportError" class="report-error" aria-live="polite"></div>
             <div class="composer-footer">
               <div class="evidence-summary" title="Captured automatically with every report">
@@ -188,6 +192,7 @@
       <span>Pairing and report data stay server-authorized</span>
     </footer>
   </div>
+  <script src="devtools-live-attachments.js"></script>
   <script src="devtools-live-workspace.js"></script>
   <script src="devtools-panel.js"></script>
 </body>

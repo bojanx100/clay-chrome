@@ -24,6 +24,7 @@ function fakeElement(id) {
       element.children.push(child);
       if (!value && child.value !== undefined) value = String(child.value);
     },
+    setAttribute: function (name, next) { element[name] = String(next); },
     addEventListener: function (name, listener) { listeners[name] = listener; },
     dispatch: function (name, event) { listeners[name](event || {}); },
     click: function () { if (listeners.click) listeners.click({}); },
@@ -52,6 +53,7 @@ function panelHarness(options) {
     "hmrStatus", "hmrLabel", "reportCount", "reportList", "emptyReports",
     "followupTarget", "followupLabel", "newIssueButton", "reportInput",
     "reportError", "reportButton",
+    "attachmentList",
   ];
   var elements = {};
   for (var i = 0; i < ids.length; i++) elements[ids[i]] = fakeElement(ids[i]);
@@ -97,9 +99,19 @@ function panelHarness(options) {
     setInterval: function () { return 1; },
     clearInterval: function () {},
     setTimeout: function () { return 1; },
+    FileReader: function () {
+      this.readAsDataURL = function (file) {
+        this.onload({ target: { result: file.dataUrl } });
+      };
+      this.readAsText = function (file) {
+        this.onload({ target: { result: file.text } });
+      };
+    },
     URL: URL,
   };
   var source = fs.readFileSync(path.join(
+    __dirname, "..", "devtools-live-attachments.js"), "utf8") + "\n" +
+    fs.readFileSync(path.join(
     __dirname, "..", "devtools-live-workspace.js"), "utf8") + "\n" +
     fs.readFileSync(path.join(__dirname, "..", "devtools-panel.js"), "utf8");
   vm.runInNewContext(source, context);
@@ -186,6 +198,58 @@ test("active DevTools workspace owns selection and report controls", function ()
   assert.strictEqual(report.payload.text, "Increase the clock contrast");
 });
 
+test("DevTools composer sends pasted screenshots and long text", function () {
+  var state = {
+    ok: true,
+    activeTab: { id: 43, title: "Account", url: "http://localhost:4242/account" },
+    controls: [],
+    pairings: [{ pairingId: "pair-1", targetTabId: 43 }],
+    recentPairings: [],
+    status: null,
+  };
+  var snapshot = {
+    ok: true,
+    pairingId: "pair-1",
+    connected: true,
+    reports: [],
+    counts: {},
+    hmr: {},
+  };
+  var harness = panelHarness({ state: state, snapshot: snapshot });
+  var prevented = 0;
+  harness.elements.reportInput.dispatch("paste", {
+    clipboardData: {
+      files: [{
+        name: "screen.png",
+        type: "image/png",
+        size: 12,
+        dataUrl: "data:image/png;base64,iVBORw0KGgo=",
+      }],
+      items: [],
+      getData: function () { return ""; },
+    },
+    preventDefault: function () { prevented++; },
+  });
+  harness.elements.reportInput.dispatch("paste", {
+    clipboardData: {
+      files: [],
+      items: [],
+      getData: function () { return "log line\n".repeat(80); },
+    },
+    preventDefault: function () { prevented++; },
+  });
+  harness.elements.reportButton.dispatch("click");
+  var report = harness.messages.filter(function (message) {
+    return message.type === "live_ui_devtools_command" &&
+      message.action === "report.submit";
+  })[0];
+  assert.strictEqual(prevented, 2);
+  assert.strictEqual(report.payload.attachments.images.length, 1);
+  assert.strictEqual(report.payload.attachments.images[0].mediaType, "image/png");
+  assert.strictEqual(report.payload.attachments.pastes.length, 1);
+  assert.match(report.payload.attachments.pastes[0], /log line/);
+});
+
 test("panel routes state and pairing to the exact inspected tab", function () {
   var harness = panelHarness();
   assert.strictEqual(harness.messages[0].type, "live_ui_picker_get_state");
@@ -211,6 +275,8 @@ test("DevTools surface stays bounded and avoids browser-side settings", function
   var panel = fs.readFileSync(path.join(root, "devtools-panel.js"), "utf8");
   var workspace = fs.readFileSync(
     path.join(root, "devtools-live-workspace.js"), "utf8");
+  var attachments = fs.readFileSync(
+    path.join(root, "devtools-live-attachments.js"), "utf8");
   var entry = fs.readFileSync(path.join(root, "devtools.js"), "utf8");
   var target = fs.readFileSync(path.join(root, "live-ui-picker-target.js"), "utf8");
   var background = fs.readFileSync(path.join(root, "background.js"), "utf8");
@@ -223,11 +289,13 @@ test("DevTools surface stays bounded and avoids browser-side settings", function
   assert.match(html, /Worker changes/);
   assert.match(html, /Pick component/);
   assert.match(html, /Describe the issue or change/);
+  assert.match(html, /Paste screenshots, images, long text/);
   assert.match(panel, /chrome\.devtools\.inspectedWindow\.tabId/);
   assert.match(panel, /targetTabId: inspectedTabId/);
   assert.match(panel, /live_ui_devtools_command/);
   assert.match(workspace, /report\.submit/);
   assert.match(workspace, /report\.approve/);
+  assert.match(attachments, /addEventListener\("paste"/);
   assert.doesNotMatch(html + workspace, /collapse|expand/i);
   assert.match(panel, /document\.activeElement === sessionSelect/);
   assert.match(panel, /projectActive = document\.activeElement === projectSelect/);
@@ -237,7 +305,9 @@ test("DevTools surface stays bounded and avoids browser-side settings", function
   assert.match(background, /live-ui-devtools-background\.js/);
   assert.ok(panel.split("\n").length < 500);
   assert.ok(workspace.split("\n").length < 500);
+  assert.ok(attachments.split("\n").length < 500);
   assert.ok(target.split("\n").length < 500);
   assert.doesNotMatch(panel, /localStorage/);
-  assert.doesNotMatch(panel + workspace + entry + target, /\b(?:const|let)\b|=>/);
+  assert.doesNotMatch(panel + workspace + attachments + entry + target,
+    /\b(?:const|let)\b|=>/);
 });

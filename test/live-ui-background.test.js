@@ -105,6 +105,7 @@ test("target canvas exposes only React selection and worker highlights", functio
   assert.match(target, /report\.submit/);
   assert.match(target, /report\.approve/);
   assert.match(target, /reportId: focusedReport\.reportId/);
+  assert.match(target, /attachments: attachments/);
   assert.match(target, /live_ui_devtools_command/);
   assert.match(background, /live-ui-target-snapshot\.js/);
   assert.match(target, /evidence\.capture/);

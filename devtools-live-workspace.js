@@ -77,6 +77,7 @@
       followupLabel: element("followupLabel"),
       newIssue: element("newIssueButton"),
       input: element("reportInput"),
+      attachmentList: element("attachmentList"),
       error: element("reportError"),
       report: element("reportButton"),
     };
@@ -84,6 +85,18 @@
     var actionError = "";
     var lastAcceptedSequence = null;
     var actionPending = false;
+    var attachments = ClayLiveUiDevtoolsAttachments.create({
+      container: refs.attachmentList,
+      input: refs.input,
+      onError: function (message) {
+        actionError = message;
+        render(snapshot);
+      },
+      onChange: function () {
+        actionError = "";
+        if (snapshot) renderComposer();
+      },
+    });
 
     function focusedReport() {
       if (!snapshot || !snapshot.focusedId) return null;
@@ -224,6 +237,7 @@
       var accepted = Number(snapshot.acceptedSequence || 0);
       if (lastAcceptedSequence !== null && accepted > lastAcceptedSequence) {
         refs.input.value = "";
+        attachments.clear();
       }
       lastAcceptedSequence = accepted;
       refs.session.textContent = snapshot.sessionLabel || "Connected chat";
@@ -252,17 +266,19 @@
     });
     refs.report.addEventListener("click", function () {
       var text = String(refs.input.value || "").trim();
-      if (!text) {
-        actionError = "Describe the issue or change first.";
+      if (!text && !attachments.hasContent()) {
+        actionError = "Describe the issue or paste supporting context first.";
         render(snapshot);
         return;
       }
+      if (!text) text = "Review the pasted Live UI context and address the visible issue.";
       var focused = focusedReport();
       actionPending = true;
       render(snapshot);
       run("report.submit", {
         text: text,
         reportId: focused ? focused.reportId : null,
+        attachments: attachments.payload(),
       }, function () {
         actionPending = false;
         render(snapshot);
@@ -283,6 +299,7 @@
         actionPending = false;
         lastAcceptedSequence = null;
         refs.input.value = "";
+        attachments.clear();
         refs.reportList.innerHTML = "";
       },
     };

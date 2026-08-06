@@ -73,8 +73,19 @@ test("DevTools bridge bounds report text before crossing into the page", functio
     targetTabId: 42,
     pairingId: "pair-1",
     action: "report.submit",
-    payload: { text: "x".repeat(15000), reportId: "report-1" },
+    payload: {
+      text: "x".repeat(15000),
+      reportId: "report-1",
+      attachments: {
+        images: [{ mediaType: "image/png", data: "aGVsbG8=", name: "shot.png" }],
+        pastes: ["console output"],
+      },
+    },
   }, function () {});
   assert.strictEqual(state.sent[0].message.payload.text.length, 12000);
   assert.strictEqual(state.sent[0].message.payload.reportId, "report-1");
+  assert.deepStrictEqual(state.sent[0].message.payload.attachments, {
+    images: [{ mediaType: "image/png", data: "aGVsbG8=", name: "shot.png" }],
+    pastes: ["console output"],
+  });
 });

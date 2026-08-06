@@ -12,12 +12,46 @@
     return typeof value === "string" ? value.slice(0, 200) : null;
   }
 
+  function safeAttachments(value) {
+    var input = value && typeof value === "object" ? value : {};
+    var images = [];
+    var imageBytes = 0;
+    var sourceImages = Array.isArray(input.images) ? input.images : [];
+    var allowed = { "image/png": true, "image/jpeg": true,
+      "image/gif": true, "image/webp": true };
+    for (var i = 0; i < sourceImages.length && images.length < 4; i++) {
+      var image = sourceImages[i] || {};
+      var data = typeof image.data === "string" ? image.data : "";
+      if (!allowed[image.mediaType] || !data || data.length > 7 * 1024 * 1024 ||
+          data.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data) ||
+          imageBytes + data.length > 14 * 1024 * 1024) continue;
+      imageBytes += data.length;
+      images.push({
+        mediaType: image.mediaType,
+        data: data,
+        name: typeof image.name === "string" ? image.name.slice(0, 120) : "pasted-image",
+      });
+    }
+    var pastes = [];
+    var pasteChars = 0;
+    var sourcePastes = Array.isArray(input.pastes) ? input.pastes : [];
+    for (var j = 0; j < sourcePastes.length && pastes.length < 4; j++) {
+      var paste = typeof sourcePastes[j] === "string" ? sourcePastes[j] : "";
+      if (!paste || paste.length > 64 * 1024 ||
+          pasteChars + paste.length > 128 * 1024) continue;
+      pasteChars += paste.length;
+      pastes.push(paste);
+    }
+    return { images: images, pastes: pastes };
+  }
+
   function safePayload(action, value) {
     var input = value || {};
     if (action === "report.submit") {
       return {
         text: String(input.text || "").slice(0, 12000),
         reportId: safeId(input.reportId),
+        attachments: safeAttachments(input.attachments),
       };
     }
     if (action === "report.focus" || action === "report.approve") {
