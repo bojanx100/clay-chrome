@@ -300,6 +300,37 @@ test("picker pins the exact inspected tab instead of the active tab", function (
   assert.ok(request.tabs.some(function (tab) { return tab.id === 43; }));
 });
 
+test("picker forwards guarded server reconnect intent and its error code", function () {
+  var state = harness();
+  var response = null;
+  state.picker.handlePopupMessage({
+    type: "live_ui_picker_pair",
+    controlTabId: 7,
+    projectSlug: "clay",
+    sessionId: 12,
+    targetTabId: 43,
+    reconnectServer: true,
+  }, function (value) { response = value; });
+  assert.strictEqual(response.ok, true);
+  var request = state.portMessages.filter(function (message) {
+    return message.type === "clay_live_ui_picker_pair_request";
+  })[0];
+  assert.strictEqual(request.reconnectServer, true);
+
+  state.picker.handlePortMessage(7, {
+    type: "clay_live_ui_picker_state",
+    requestId: request.requestId,
+    state: "error",
+    code: "LIVE_UI_SERVER_ROOT_MISMATCH",
+    error: "Different worktree",
+  });
+  state.picker.handlePopupMessage({
+    type: "live_ui_picker_get_state",
+    targetTabId: 43,
+  }, function (value) { response = value; });
+  assert.strictEqual(response.status.code, "LIVE_UI_SERVER_ROOT_MISMATCH");
+});
+
 test("picker opens another project and pairs only after Clay reconnects there", function () {
   var state = harness();
   var response = null;

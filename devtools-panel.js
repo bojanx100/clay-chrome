@@ -6,6 +6,7 @@ var tabNumber = document.getElementById("tabNumber");
 var projectSelect = document.getElementById("projectSelect");
 var sessionSelect = document.getElementById("sessionSelect");
 var startButton = document.getElementById("startButton");
+var reconnectButton = document.getElementById("reconnectButton");
 var exitButton = document.getElementById("exitButton");
 var panelStatus = document.getElementById("panelStatus");
 var setupWorkspace = document.getElementById("setupWorkspace");
@@ -33,7 +34,11 @@ function setStatus(message, kind) {
   panelStatus.className = "panel-status" + (kind ? " " + kind : "");
 }
 
-function errorText(error) {
+function errorText(error, code) {
+  if (code === "LIVE_UI_SERVER_ROOT_MISMATCH") {
+    return "This page belongs to a different project root or worktree. " +
+      "Choose its chat, or start this chat's own server.";
+  }
   if (error === "Start the session's local development server before opening Live UI") {
     return "This chat does not own the development server for the inspected page. " +
       "Choose the chat that started it, or start its server.";
@@ -281,9 +286,15 @@ function loadTargetState(pairing) {
 }
 
 function renderPickerStatus(status) {
+  reconnectButton.classList.add("hidden");
   if (!status) return;
   if (status.state === "error") {
-    setStatus(errorText(status.error), "error");
+    setStatus(errorText(status.error, status.code), "error");
+    if (status.code === "LIVE_UI_DEV_SERVER_REQUIRED" ||
+        status.code === "LIVE_UI_ORIGIN_DENIED") {
+      reconnectButton.classList.remove("hidden");
+      reconnectButton.disabled = false;
+    }
   } else if (status.state === "switching_project") {
     setStatus("Opening the selected project in Clay…");
   } else if (status.state === "requesting" || status.state === "pairing") {
@@ -361,24 +372,37 @@ projectSelect.addEventListener("change", function () {
   startButton.disabled = sessions.length === 0;
 });
 
-startButton.addEventListener("click", function () {
+function requestPair(reconnectServer) {
   var selected = selectedSession();
   if (!selected) return;
   startButton.disabled = true;
-  setStatus("Connecting the inspected page to Clay…");
+  reconnectButton.disabled = true;
+  setStatus(reconnectServer ?
+    "Checking this chat's project root and reconnecting…" :
+    "Connecting the inspected page to Clay…");
   send({
     type: "live_ui_picker_pair",
     controlTabId: selected.controlTabId,
     projectSlug: selected.projectSlug,
     sessionId: selected.sessionId,
+    reconnectServer: reconnectServer === true,
   }, function (response) {
     if (!response.ok) {
-      setStatus(errorText(response.error), "error");
+      setStatus(errorText(response.error, response.code), "error");
       startButton.disabled = false;
+      reconnectButton.disabled = false;
       return;
     }
     setTimeout(loadState, 150);
   });
+}
+
+startButton.addEventListener("click", function () {
+  requestPair(false);
+});
+
+reconnectButton.addEventListener("click", function () {
+  requestPair(true);
 });
 
 exitButton.addEventListener("click", function () {

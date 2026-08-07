@@ -188,6 +188,7 @@
           projectSlug: pending.projectSlug,
           sessionId: selected.id,
           targetTabId: pending.targetTabId,
+          reconnectServer: pending.reconnectServer === true,
           tabs: pending.tabs,
           extensionId: chromeApi.runtime.id,
         });
@@ -263,6 +264,7 @@
           pairingId: message.pairingId || null,
           state: String(message.state || "error"),
           error: message.error ? String(message.error).slice(0, 500) : null,
+          code: message.code ? String(message.code).slice(0, 100) : null,
         };
         return true;
       }
@@ -356,6 +358,7 @@
             projectSlug: projectSlug,
             sessionId: selected.id,
             targetTabId: target.id,
+            reconnectServer: message.reconnectServer === true,
             tabs: publicTabs,
             timer: null,
           };
@@ -484,15 +487,12 @@
       return false;
     }
     return {
-      handlePortConnected: handlePortConnected,
-      handlePortDisconnected: handlePortDisconnected,
-      handlePortMessage: handlePortMessage,
-      handleTabUpdated: handleTabUpdated,
+      handlePortConnected: handlePortConnected, handlePortDisconnected: handlePortDisconnected,
+      handlePortMessage: handlePortMessage, handleTabUpdated: handleTabUpdated,
       handlePopupMessage: handlePopupMessage,
     };
   }
   root.ClayLiveUiPickerBackground = { createPicker: createPicker };
-  if (typeof module !== "undefined" && module.exports) {
+  if (typeof module !== "undefined" && module.exports)
     module.exports = root.ClayLiveUiPickerBackground;
-  }
 })(typeof globalThis !== "undefined" ? globalThis : this);

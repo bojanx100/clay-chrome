@@ -46,6 +46,7 @@ function panelHarness(options) {
   var ids = [
     "connectionBadge", "connectionLabel", "targetTitle", "targetUrl",
     "tabNumber", "projectSelect", "sessionSelect", "startButton",
+    "reconnectButton",
     "exitButton", "panelStatus", "setupWorkspace", "liveWorkspace",
     "liveSession", "liveProject", "liveAggregateDot", "liveAggregateLabel",
     "selectedCard", "emptySelectionCard", "selectedTitle", "selectedSource",
@@ -306,6 +307,42 @@ test("panel routes state and pairing to the exact inspected tab", function () {
   assert.strictEqual(pair.targetTabId, 43);
   assert.strictEqual(pair.projectSlug, "clay");
   assert.strictEqual(pair.sessionId, 12);
+  assert.strictEqual(pair.reconnectServer, false);
+});
+
+test("DevTools offers a guarded reconnect after a server ownership error", function () {
+  var state = {
+    ok: true,
+    activeTab: { id: 43, title: "Account", url: "http://localhost:4242/account" },
+    controls: [{
+      controlTabId: 7,
+      serverOrigin: "http://localhost:2633",
+      currentProjectSlug: "clay",
+      projects: [{
+        projectSlug: "clay",
+        projectLabel: "Clay",
+        sessionsLoaded: true,
+        sessions: [{ id: 12, title: "Live UI work" }],
+      }],
+    }],
+    pairings: [],
+    recentPairings: [],
+    status: {
+      state: "error",
+      code: "LIVE_UI_DEV_SERVER_REQUIRED",
+      error: "Start the session's local development server before opening Live UI",
+    },
+  };
+  var harness = panelHarness({ state: state });
+  assert.strictEqual(
+    harness.elements.reconnectButton.classList.contains("hidden"), false);
+  harness.elements.reconnectButton.click();
+  var pair = harness.messages.filter(function (message) {
+    return message.type === "live_ui_picker_pair";
+  })[0];
+  assert.ok(pair);
+  assert.strictEqual(pair.sessionId, 12);
+  assert.strictEqual(pair.reconnectServer, true);
 });
 
 test("DevTools surface stays bounded and avoids browser-side settings", function () {
@@ -331,6 +368,7 @@ test("DevTools surface stays bounded and avoids browser-side settings", function
   assert.match(html, /Pick component/);
   assert.match(html, /Describe the issue or change/);
   assert.match(html, /Paste screenshots, images, long text/);
+  assert.match(html, /Connect this chat to this server/);
   assert.match(panel, /chrome\.devtools\.inspectedWindow\.tabId/);
   assert.match(panel, /targetTabId: inspectedTabId/);
   assert.match(panel, /live_ui_devtools_command/);

@@ -86,6 +86,11 @@ console/network evidence. User-pasted images and text are separately previewed,
 removable, bounded before relay, and attached to the selected worker. Select
 **Exit Live UI** to revoke the pairing.
 
+If the selected chat has a stale development-server binding, DevTools offers
+**Connect this chat to this server**. Clay accepts that reconnect only when the
+inspected page exactly matches the chat's current project root or worktree;
+cross-worktree adoption is rejected server-side.
+
 ## Commands
 
 All commands are dispatched via `COMMANDS` in background.js. They arrive from the Clay server through the WebSocket/postMessage relay chain.
