@@ -250,6 +250,46 @@ test("DevTools composer sends pasted screenshots and long text", function () {
   assert.match(report.payload.attachments.pastes[0], /log line/);
 });
 
+test("completed worker cards can be removed without approving project work", function () {
+  var state = {
+    ok: true,
+    activeTab: { id: 43, title: "Account", url: "http://localhost:4242/account" },
+    controls: [],
+    pairings: [{ pairingId: "pair-1", targetTabId: 43 }],
+    recentPairings: [],
+    status: null,
+  };
+  var harness = panelHarness({
+    state: state,
+    snapshot: {
+      ok: true,
+      pairingId: "pair-1",
+      connected: true,
+      reports: [{
+        reportId: "report-1",
+        status: "completed",
+        title: "Fix account spacing",
+        worker: { label: "Worker 12", color: "#8b78ff" },
+      }],
+      counts: { completed: 1 },
+      aggregateStatus: "completed",
+      hmr: {},
+    },
+  });
+  var item = harness.elements.reportList.children[0];
+  var actions = item.children[item.children.length - 1];
+  var markDone = actions.children[1];
+  assert.strictEqual(markDone.textContent, "Mark as done");
+
+  markDone.click();
+  var dismiss = harness.messages.filter(function (message) {
+    return message.type === "live_ui_devtools_command" &&
+      message.action === "report.dismiss";
+  })[0];
+  assert.ok(dismiss);
+  assert.strictEqual(dismiss.payload.reportId, "report-1");
+});
+
 test("panel routes state and pairing to the exact inspected tab", function () {
   var harness = panelHarness();
   assert.strictEqual(harness.messages[0].type, "live_ui_picker_get_state");
@@ -279,6 +319,7 @@ test("DevTools surface stays bounded and avoids browser-side settings", function
     path.join(root, "devtools-live-attachments.js"), "utf8");
   var entry = fs.readFileSync(path.join(root, "devtools.js"), "utf8");
   var target = fs.readFileSync(path.join(root, "live-ui-picker-target.js"), "utf8");
+  var liveTarget = fs.readFileSync(path.join(root, "live-ui-target.js"), "utf8");
   var background = fs.readFileSync(path.join(root, "background.js"), "utf8");
   assert.strictEqual(manifest.devtools_page, "devtools.html");
   assert.ok(html.indexOf("projectSelect") < html.indexOf("sessionSelect"));
@@ -294,7 +335,8 @@ test("DevTools surface stays bounded and avoids browser-side settings", function
   assert.match(panel, /targetTabId: inspectedTabId/);
   assert.match(panel, /live_ui_devtools_command/);
   assert.match(workspace, /report\.submit/);
-  assert.match(workspace, /report\.approve/);
+  assert.match(workspace, /report\.dismiss/);
+  assert.match(liveTarget, /report\.dismiss/);
   assert.match(attachments, /addEventListener\("paste"/);
   assert.doesNotMatch(html + workspace, /collapse|expand/i);
   assert.match(panel, /document\.activeElement === sessionSelect/);

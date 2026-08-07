@@ -4,7 +4,7 @@
     "selection.clear": true,
     "report.focus": true,
     "report.submit": true,
-    "report.approve": true,
+    "report.dismiss": true,
     snapshot: true,
   };
 
@@ -54,7 +54,7 @@
         attachments: safeAttachments(input.attachments),
       };
     }
-    if (action === "report.focus" || action === "report.approve") {
+    if (action === "report.focus" || action === "report.dismiss") {
       return { reportId: safeId(input.reportId) };
     }
     return {};

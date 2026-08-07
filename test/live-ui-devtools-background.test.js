@@ -89,3 +89,20 @@ test("DevTools bridge bounds report text before crossing into the page", functio
     pastes: ["console output"],
   });
 });
+
+test("DevTools bridge forwards the completed-card dismiss action", function () {
+  var state = harness();
+  state.bridge.handleMessage({
+    type: "live_ui_devtools_command",
+    targetTabId: 42,
+    pairingId: "pair-1",
+    action: "report.dismiss",
+    payload: { reportId: "report-1" },
+  }, function () {});
+  assert.deepStrictEqual(state.sent[0].message, {
+    type: "live_ui_devtools_command",
+    pairingId: "pair-1",
+    action: "report.dismiss",
+    payload: { reportId: "report-1" },
+  });
+});

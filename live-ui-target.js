@@ -280,17 +280,17 @@
     if (report && report.locator) restoreSelection(report.locator, true);
   }
 
-  function approveReport(report, callback) {
+  function dismissReport(report, callback) {
     if (!report || state.submitting || !state.connected) {
-      callback({ ok: false, error: "That worker change cannot be approved now." });
+      callback({ ok: false, error: "That worker card cannot be removed now." });
       return;
     }
     setComposeError("");
-    sendEvent("report.approve", { reportId: report.reportId },
-      nextMessageId("approve"), function (response) {
+    sendEvent("report.dismiss", { reportId: report.reportId },
+      nextMessageId("dismiss"), function (response) {
         if (!response || response.ok === false) {
           var message = response && response.error ?
-            response.error : "Clay could not approve this worker change.";
+            response.error : "Clay could not remove this worker card.";
           setComposeError(message);
           callback({ ok: false, error: message });
           return;
@@ -358,8 +358,8 @@
       submitReport(payload.text, payload.reportId, payload.attachments, sendResponse);
       return true;
     }
-    if (message.action === "report.approve") {
-      approveReport(state.reportManager.get(payload.reportId), sendResponse);
+    if (message.action === "report.dismiss") {
+      dismissReport(state.reportManager.get(payload.reportId), sendResponse);
       return true;
     }
     sendResponse({ ok: false, error: "Unsupported Live UI action." });

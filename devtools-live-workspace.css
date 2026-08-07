@@ -405,7 +405,7 @@
   color: var(--text);
 }
 
-.report-action.approve {
+.report-action.done {
   border-color: rgba(74, 210, 149, .35);
   color: #a8e9cc;
 }

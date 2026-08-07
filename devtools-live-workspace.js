@@ -183,8 +183,8 @@
         refs.input.focus();
       }));
       if (report.status === "completed") {
-        actions.appendChild(actionButton("Approve", "approve", function () {
-          run("report.approve", { reportId: report.reportId });
+        actions.appendChild(actionButton("Mark as done", "done", function () {
+          run("report.dismiss", { reportId: report.reportId });
         }));
       }
       item.appendChild(actions);

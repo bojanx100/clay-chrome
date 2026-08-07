@@ -61,7 +61,7 @@ clay-chrome/
 
 The toolbar popup handles MCP setup and quick Live UI pairing. The docked
 DevTools panel contains the full Live UI workspace: component details, report
-composer, worker changes, follow-ups, approvals, HMR state, and Exit. The paired
+composer, worker changes, follow-ups, completed-card dismissal, HMR state, and Exit. The paired
 development page contains no persistent toolbox or sidebar. It receives only a
 temporary event-blocking selection shield while picking and pointer-transparent
 selection or worker outlines afterward.
