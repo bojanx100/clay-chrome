@@ -18,6 +18,7 @@
   }
   function createRuntime(chromeApi, clayPortForTab, options) {
     options = options || {};
+    var recoverPairing = options.recoverPairing || function () {};
     var captureScreenshot = options.captureScreenshot || function (pairing, payload, callback) {
       evidence.captureMaskedScreenshot(chromeApi, pairing, payload, callback);
     };
@@ -332,13 +333,19 @@
         pairing.reconnectCredential = envelope.reconnectCredential;
         save();
       }
-      if (envelope.type === "live_ui_state" && envelope.state === "revoked") {
+      var staleServerPairing = envelope.type === "live_ui_state" && (
+        envelope.code === "LIVE_UI_NOT_FOUND" ||
+        (envelope.state === "revoked" && envelope.reason === "server_restart"));
+      if (envelope.type === "live_ui_state" &&
+          (envelope.state === "revoked" || staleServerPairing)) {
+        var metadata = recoveryMetadata(pairing);
         sendToTarget(pairing, {
           type: "live_ui_destroy",
           pairingId: pairing.pairingId,
         }, function () {});
         delete pairings[pairing.pairingId];
         save();
+        if (staleServerPairing) recoverPairing(metadata);
         return true;
       }
       sendToTarget(pairing, { type: "live_ui_server_event", envelope: envelope }, function () {});

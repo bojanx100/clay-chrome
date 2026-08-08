@@ -18,7 +18,7 @@
     };
   }
   function createPicker(chromeApi, runtime, getPort, getPortIds, discoveryModule,
-      targetModule, catalogModule, workspaceModule) {
+      targetModule, catalogModule, workspaceModule, recoveryModule) {
     var identities = {};
     var pendingPairs = {};
     var pendingConnections = {};
@@ -29,9 +29,31 @@
     var safeIdentity = catalog.safeIdentity;
     var safeSession = catalog.safeSession;
     var targetResolver = targetModule || root.ClayLiveUiPickerTarget;
+    var recoveryApi = recoveryModule || root.ClayLiveUiPickerRecovery;
+    if (!recoveryApi && typeof require === "function") {
+      recoveryApi = require("./live-ui-picker-recovery");
+    }
     var workspaceProbe = workspaceModule.createProbe(chromeApi, getPort);
     var discovery = discoveryModule && discoveryModule.createDiscovery(
       chromeApi, getPort, requestIdentity);
+    var recovery = recoveryApi.createRecovery({
+      getIdentity: function (tabId) { return identities[tabId] || null; },
+      getPort: getPort,
+      projectBySlug: projectBySlug,
+      findSelection: findSelection,
+      requestIdentity: requestIdentity,
+      loadProject: loadProject,
+      startPair: pair,
+      onFailure: function (error) {
+        status = {
+          requestId: null,
+          pairingId: null,
+          state: "error",
+          error: error,
+          code: "LIVE_UI_AUTO_RECOVERY_FAILED",
+        };
+      },
+    });
     function mergeIdentity(previous, next) {
       if (!previous || previous.serverOrigin !== next.serverOrigin) return next;
       for (var i = 0; i < next.projects.length; i++) {
@@ -191,11 +213,13 @@
           if (pendingPairs[tabId]) {
             postPairRequest(tabId, pendingPairs[tabId], identity);
           }
+          recovery.retry();
         }
         return true;
       }
       if (message.type === "clay_live_ui_project_sessions") {
         updateProjectSessions(tabId, message);
+        recovery.retry();
         return true;
       }
       if (message.type === "clay_live_ui_picker_state") {
@@ -410,6 +434,9 @@
         sendResponse(result);
       });
     }
+    function recoverPairing(metadata) {
+      return recovery.recover(metadata);
+    }
     function handlePopupMessage(message, sendResponse) {
       if (!message) return false;
       if (message.type === "live_ui_picker_get_state") {
@@ -441,7 +468,7 @@
     return {
       handlePortConnected: handlePortConnected, handlePortDisconnected: handlePortDisconnected,
       handlePortMessage: handlePortMessage, handleTabUpdated: handleTabUpdated,
-      handlePopupMessage: handlePopupMessage,
+      handlePopupMessage: handlePopupMessage, recoverPairing: recoverPairing,
     };
   }
   root.ClayLiveUiPickerBackground = { createPicker: createPicker };

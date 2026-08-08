@@ -8,6 +8,7 @@ importScripts("live-ui-evidence.js", "live-ui-react-background.js",
   "live-ui-picker-catalog.js",
   "live-ui-picker-target.js",
   "live-ui-picker-workspace.js",
+  "live-ui-picker-recovery.js",
   "live-ui-picker-background.js");
 
 // --- State ---
@@ -154,11 +155,16 @@ var COMMANDS = {
 // --- Clay Tab Ports (long-lived connections from content scripts) ---
 
 var clayPorts = {}; // tabId -> port
+var liveUiPicker = null;
 var liveUiRuntime = ClayLiveUiBackground.createRuntime(chrome, function (tabId) {
   return clayPorts[tabId] || null;
+}, {
+  recoverPairing: function (metadata) {
+    if (liveUiPicker) liveUiPicker.recoverPairing(metadata);
+  },
 });
 var liveUiDevtools = ClayLiveUiDevtoolsBackground.createBridge(chrome, liveUiRuntime);
-var liveUiPicker = ClayLiveUiPickerBackground.createPicker(
+liveUiPicker = ClayLiveUiPickerBackground.createPicker(
   chrome,
   liveUiRuntime,
   function (tabId) { return clayPorts[tabId] || null; },
@@ -166,7 +172,8 @@ var liveUiPicker = ClayLiveUiPickerBackground.createPicker(
   ClayLiveUiPickerDiscovery,
   ClayLiveUiPickerTarget,
   ClayLiveUiPickerCatalog,
-  ClayLiveUiPickerWorkspace
+  ClayLiveUiPickerWorkspace,
+  ClayLiveUiPickerRecovery
 );
 
 chrome.runtime.onConnect.addListener(function (port) {
