@@ -163,6 +163,34 @@ test("picker exposes the server-authoritative workspace match", function () {
   });
 });
 
+test("workspace matching times out and retries when Clay does not answer", function () {
+  var now = 0;
+  var messages = [];
+  var port = {
+    postMessage: function (message) { messages.push(message); },
+  };
+  var probe = workspaceModule.createProbe({ runtime: { id: "extension-a" } },
+    function () { return port; }, {
+      now: function () { return now; },
+      timeoutMs: 1000,
+      retryDelayMs: 500,
+    });
+  var tab = { id: 43, url: "http://localhost:4242/account" };
+  var controls = [{ controlTabId: 7 }];
+
+  assert.strictEqual(probe.ensure(tab, controls, [tab]).state, "checking");
+  assert.strictEqual(messages.length, 1);
+  now = 1001;
+  var timedOut = probe.ensure(tab, controls, [tab]);
+  assert.strictEqual(timedOut.state, "unmatched");
+  assert.strictEqual(timedOut.code, "LIVE_UI_TARGET_PROBE_TIMEOUT");
+  assert.match(timedOut.error, /retry automatically/i);
+  now = 1502;
+  assert.strictEqual(probe.ensure(tab, controls, [tab]).state, "checking");
+  assert.strictEqual(messages.length, 2);
+  assert.notStrictEqual(messages[0].requestId, messages[1].requestId);
+});
+
 test("picker preserves manual project choice for remote previews", function () {
   var state = harness();
   var response = null;
