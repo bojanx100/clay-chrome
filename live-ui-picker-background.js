@@ -8,76 +8,6 @@
       return null;
     }
   }
-  function safeSession(value) {
-    var session = value || {};
-    if (session.id === undefined || session.id === null ||
-        String(session.id).length > 200) return null;
-    return {
-      id: session.id,
-      title: String(session.title || "New chat").slice(0, 160),
-      active: !!session.active,
-      isProcessing: !!session.isProcessing,
-      coordinationMode: !!session.coordinationMode,
-    };
-  }
-  function safeProject(value, remainingSessions) {
-    var project = value || {};
-    var projectSlug = String(project.projectSlug || "");
-    if (!/^[a-z0-9_-]+$/.test(projectSlug)) return null;
-    var inputSessions = Array.isArray(project.sessions) ? project.sessions : [];
-    var sessions = [];
-    for (var si = 0; si < inputSessions.length &&
-        sessions.length < remainingSessions; si++) {
-      var session = safeSession(inputSessions[si]);
-      if (session) sessions.push(session);
-    }
-    return {
-      projectSlug: projectSlug,
-      projectLabel: String(
-        project.projectLabel || project.projectTitle || projectSlug).slice(0, 160),
-      sessions: sessions,
-      sessionsLoaded: project.sessionsLoaded !== undefined ?
-        !!project.sessionsLoaded : Array.isArray(project.sessions),
-      sessionsLoading: !!project.sessionsLoading,
-      sessionsError: project.sessionsError ?
-        String(project.sessionsError).slice(0, 500) : null,
-    };
-  }
-  function projectBySlug(projects, slug) {
-    for (var i = 0; i < projects.length; i++) {
-      if (projects[i].projectSlug === slug) return projects[i];
-    }
-    return null;
-  }
-  function safeIdentity(value) {
-    if (!value || !safeOrigin(value.serverOrigin)) return null;
-    var currentProjectSlug = String(
-      value.currentProjectSlug || value.projectSlug || "");
-    if (!/^[a-z0-9_-]+$/.test(currentProjectSlug)) return null;
-    var inputProjects = Array.isArray(value.projects) ? value.projects : [{
-      projectSlug: currentProjectSlug,
-      projectLabel: value.projectLabel,
-      sessions: value.sessions,
-      sessionsLoaded: true,
-    }];
-    var projects = [];
-    var totalSessions = 0;
-    for (var pi = 0; pi < inputProjects.length && projects.length < 100; pi++) {
-      var project = safeProject(inputProjects[pi], 500 - totalSessions);
-      if (!project) continue;
-      projects.push(project);
-      totalSessions += project.sessions.length;
-    }
-    var currentProject = projectBySlug(projects, currentProjectSlug);
-    return {
-      serverOrigin: safeOrigin(value.serverOrigin),
-      currentProjectSlug: currentProjectSlug,
-      projectSlug: currentProjectSlug,
-      projectLabel: String(value.projectLabel || currentProjectSlug).slice(0, 160),
-      sessions: currentProject ? currentProject.sessions : [],
-      projects: projects,
-    };
-  }
   function publicTab(tab) {
     if (!tab || !Number(tab.id) || !safeOrigin(tab.url)) return null;
     return {
@@ -88,13 +18,18 @@
     };
   }
   function createPicker(chromeApi, runtime, getPort, getPortIds, discoveryModule,
-      targetModule) {
+      targetModule, catalogModule, workspaceModule) {
     var identities = {};
     var pendingPairs = {};
     var pendingConnections = {};
     var status = null;
     var counter = 0;
+    var catalog = catalogModule || root.ClayLiveUiPickerCatalog;
+    var projectBySlug = catalog.projectBySlug;
+    var safeIdentity = catalog.safeIdentity;
+    var safeSession = catalog.safeSession;
     var targetResolver = targetModule || root.ClayLiveUiPickerTarget;
+    var workspaceProbe = workspaceModule.createProbe(chromeApi, getPort);
     var discovery = discoveryModule && discoveryModule.createDiscovery(
       chromeApi, getPort, requestIdentity);
     function mergeIdentity(previous, next) {
@@ -170,9 +105,10 @@
     }
     function postPairRequest(tabId, pending, identity) {
       var port = getPort(tabId);
-      var selected = findSelection(
+      var selected = pending.createSession ? null : findSelection(
         identity, pending.projectSlug, pending.sessionId);
-      if (!port || identity.currentProjectSlug !== pending.projectSlug || !selected) {
+      if (!port || identity.currentProjectSlug !== pending.projectSlug ||
+          (!pending.createSession && !selected)) {
         return false;
       }
       status = {
@@ -183,11 +119,14 @@
       };
       try {
         port.postMessage({
-          type: "clay_live_ui_picker_pair_request",
+          type: pending.createSession ?
+            "clay_live_ui_picker_create_request" :
+            "clay_live_ui_picker_pair_request",
           requestId: pending.requestId,
           projectSlug: pending.projectSlug,
-          sessionId: selected.id,
+          sessionId: selected ? selected.id : null,
           targetTabId: pending.targetTabId,
+          attachWorkspace: pending.attachWorkspace === true,
           reconnectServer: pending.reconnectServer === true,
           tabs: pending.tabs,
           extensionId: chromeApi.runtime.id,
@@ -242,6 +181,7 @@
     }
     function handlePortMessage(tabId, message) {
       if (!message) return false;
+      if (workspaceProbe.handleMessage(message)) return true;
       if (message.type === "clay_live_ui_identity") {
         var identity = safeIdentity(message.identity);
         if (identity) {
@@ -272,6 +212,7 @@
     }
     function handleTabUpdated(tabId, changeInfo, tab) {
       if (discovery) discovery.handleTabUpdated(tabId, changeInfo);
+      if (changeInfo.status === "loading") workspaceProbe.clear(tabId);
       var pending = pendingPairs[tabId];
       if (!pending || changeInfo.status !== "complete") return;
       var expected = pending.serverOrigin + "/p/" +
@@ -304,12 +245,15 @@
       targetResolver.resolve(chromeApi, message, publicTab, function (activeTab) {
         var connectedControls = controls();
         function respond(discoveryState) {
+          var targetWorkspace = workspaceProbe.ensure(
+            activeTab, connectedControls, activeTab ? [activeTab] : []);
           sendResponse({
             ok: true,
             activeTab: activeTab,
             controls: connectedControls,
             pairings: runtime.getPairings(), recentPairings: runtime.getRecentPairings(),
             status: status,
+            targetWorkspace: targetWorkspace,
             discoveringClay: !!(discoveryState &&
               discoveryState.candidateCount),
           });
@@ -330,8 +274,10 @@
         return;
       }
       var projectSlug = String(message.projectSlug || identity.currentProjectSlug || "");
-      var selected = findSelection(identity, projectSlug, message.sessionId);
-      if (!selected) {
+      var project = projectBySlug(identity.projects, projectSlug);
+      var selected = message.createSession ? null :
+        findSelection(identity, projectSlug, message.sessionId);
+      if (!project || (!message.createSession && !selected)) {
         sendResponse({ ok: false, error: "The selected session is no longer available." });
         return;
       }
@@ -356,8 +302,10 @@
             controlTabId: controlTabId,
             serverOrigin: identity.serverOrigin,
             projectSlug: projectSlug,
-            sessionId: selected.id,
+            sessionId: selected ? selected.id : null,
             targetTabId: target.id,
+            createSession: message.createSession === true,
+            attachWorkspace: message.attachWorkspace === true,
             reconnectServer: message.reconnectServer === true,
             tabs: publicTabs,
             timer: null,
@@ -470,6 +418,10 @@
       }
       if (message.type === "live_ui_picker_pair") {
         pair(message, sendResponse);
+        return true;
+      }
+      if (message.type === "live_ui_picker_create") {
+        pair(Object.assign({}, message, { createSession: true }), sendResponse);
         return true;
       }
       if (message.type === "live_ui_picker_load_project") {

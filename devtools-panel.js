@@ -6,7 +6,7 @@ var tabNumber = document.getElementById("tabNumber");
 var projectSelect = document.getElementById("projectSelect");
 var sessionSelect = document.getElementById("sessionSelect");
 var startButton = document.getElementById("startButton");
-var reconnectButton = document.getElementById("reconnectButton");
+var newSessionButton = document.getElementById("newSessionButton");
 var exitButton = document.getElementById("exitButton");
 var panelStatus = document.getElementById("panelStatus");
 var setupWorkspace = document.getElementById("setupWorkspace");
@@ -35,13 +35,8 @@ function setStatus(message, kind) {
 }
 
 function errorText(error, code) {
-  if (code === "LIVE_UI_SERVER_ROOT_MISMATCH") {
-    return "This page belongs to a different project root or worktree. " +
-      "Choose its chat, or start this chat's own server.";
-  }
-  if (error === "Start the session's local development server before opening Live UI") {
-    return "This chat does not own the development server for the inspected page. " +
-      "Choose the chat that started it, or start its server.";
+  if (code === "LIVE_UI_TARGET_PROJECT_MISMATCH") {
+    return "That chat belongs to a different project than the inspected server.";
   }
   return error || "Live UI could not start.";
 }
@@ -87,13 +82,18 @@ function recentPairing(state) {
   return null;
 }
 
-function collectProjects(controls) {
+function collectProjects(controls, targetWorkspace) {
   var byKey = {};
+  var targetSlug = targetWorkspace && targetWorkspace.state === "matched" ?
+    targetWorkspace.projectSlug : null;
+  var manual = targetWorkspace && targetWorkspace.state === "manual";
+  if (!targetSlug && !manual) return [];
   for (var ci = 0; ci < controls.length; ci++) {
     var control = controls[ci];
     var controlProjects = control.projects || [];
     for (var pi = 0; pi < controlProjects.length; pi++) {
       var value = controlProjects[pi];
+      if (!manual && value.projectSlug !== targetSlug) continue;
       var key = control.serverOrigin + "|" + value.projectSlug;
       var candidate = {
         key: key,
@@ -206,31 +206,29 @@ function requestSessions(project) {
 }
 
 function renderOptions(controls, preferred) {
-  if (document.activeElement === sessionSelect) return;
+  if (document.activeElement === sessionSelect ||
+      document.activeElement === projectSelect) return;
   var previousProject = selectedProject();
   var previousSession = selectedSession();
-  var nextProjects = collectProjects(controls);
+  var nextProjects = collectProjects(controls, panelState && panelState.targetWorkspace);
   var signature = JSON.stringify({ projects: nextProjects, preferred: preferred });
   if (signature === optionsSignature) return;
-  var projectActive = document.activeElement === projectSelect;
   projects = nextProjects;
-  if (!projectActive) {
-    projectSelect.innerHTML = "";
-    for (var i = 0; i < projects.length; i++) {
-      var option = document.createElement("option");
-      option.value = String(i);
-      option.textContent = projects[i].projectLabel;
-      projectSelect.appendChild(option);
-    }
+  projectSelect.innerHTML = "";
+  for (var i = 0; i < projects.length; i++) {
+    var option = document.createElement("option");
+    option.value = String(i);
+    option.textContent = projects[i].projectLabel;
+    projectSelect.appendChild(option);
   }
   var index = projectIndex(previousProject ? previousProject.key : null, preferred);
-  if (!projectActive) projectSelect.value = String(index);
+  projectSelect.value = String(index);
   projectSelect.disabled = projects.length === 0;
   var desiredSession = previousSession ? previousSession.sessionId :
     preferred ? preferred.sessionId : null;
   renderSessions(projects[index] || null, desiredSession);
   requestSessions(projects[index] || null);
-  if (!projectActive) optionsSignature = signature;
+  optionsSignature = signature;
 }
 
 function renderTarget(tab) {
@@ -248,6 +246,7 @@ function renderActive(pairing) {
   projectSelect.disabled = true;
   sessionSelect.disabled = true;
   startButton.disabled = true;
+  newSessionButton.disabled = true;
   setStatus("");
   loadTargetState(pairing);
 }
@@ -286,15 +285,9 @@ function loadTargetState(pairing) {
 }
 
 function renderPickerStatus(status) {
-  reconnectButton.classList.add("hidden");
   if (!status) return;
   if (status.state === "error") {
     setStatus(errorText(status.error, status.code), "error");
-    if (status.code === "LIVE_UI_DEV_SERVER_REQUIRED" ||
-        status.code === "LIVE_UI_ORIGIN_DENIED") {
-      reconnectButton.classList.remove("hidden");
-      reconnectButton.disabled = false;
-    }
   } else if (status.state === "switching_project") {
     setStatus("Opening the selected project in Clay…");
   } else if (status.state === "requesting" || status.state === "pairing") {
@@ -309,31 +302,58 @@ function renderSetup(state) {
   var controls = state.controls || [];
   var preferred = recentPairing(state);
   renderOptions(controls, preferred);
+  var targetWorkspace = state.targetWorkspace;
   if (!controls.length) {
     setBadge(state.discoveringClay ? "Finding Clay" : "Needs Clay", "checking");
     projectSelect.disabled = true;
     sessionSelect.disabled = true;
     startButton.disabled = true;
+    newSessionButton.disabled = true;
     setStatus(state.discoveringClay ?
       "Connecting to an open Clay project tab…" :
       "Open Clay in another browser tab. It will be discovered automatically.");
+  } else if (!targetWorkspace || targetWorkspace.state === "checking") {
+    setBadge("Matching page", "checking");
+    projectSelect.disabled = true;
+    sessionSelect.disabled = true;
+    startButton.disabled = true;
+    newSessionButton.disabled = true;
+    setStatus("Identifying which registered Clay project contains this server…");
+  } else if (targetWorkspace.state !== "matched" &&
+      targetWorkspace.state !== "manual") {
+    setBadge("No project match", "error");
+    projectSelect.disabled = true;
+    sessionSelect.disabled = true;
+    startButton.disabled = true;
+    newSessionButton.disabled = true;
+    setStatus(targetWorkspace.error ||
+      "This server is not inside a registered Clay project.", "error");
   } else if (!projects.length) {
     setBadge("Clay connected", "ready");
     startButton.disabled = true;
-    setStatus("No available projects were found in Clay.");
+    newSessionButton.disabled = true;
+    setStatus("The matching project is not available to this Clay user.", "error");
   } else {
     setBadge("Ready", "ready");
     startButton.disabled = sessions.length === 0;
+    newSessionButton.disabled = targetWorkspace.state !== "matched";
     if (!state.status) {
       var project = selectedProject();
+      var workspaceLabel = targetWorkspace.worktreeLabel || "Main workspace";
       if (project && project.sessionsLoading) {
-        setStatus("Reading only this project's visible chats…");
+        setStatus(targetWorkspace.state === "manual" ?
+          "Remote preview detected. Reading this project's visible chats…" :
+          "Matched " + project.projectLabel + " · " + workspaceLabel +
+            ". Reading its visible chats…");
       } else if (project && project.sessionsError) {
         setStatus(project.sessionsError, "error");
       } else {
-        setStatus(sessions.length ?
-          "Choose a chat, then start Live UI on this inspected page." :
-          "This project has no visible top-level chats.");
+        setStatus(targetWorkspace.state === "manual" ?
+          "Choose the project and chat for this remote preview. Clay will verify its exact origin." :
+          sessions.length ?
+          "Matched " + project.projectLabel + " · " + workspaceLabel +
+            ". Choose a chat or create a new coordinator." :
+          "No visible top-level chats. Create a coordinator for this workspace.");
       }
     }
   }
@@ -370,27 +390,29 @@ projectSelect.addEventListener("change", function () {
   renderSessions(project, null);
   requestSessions(project);
   startButton.disabled = sessions.length === 0;
+  newSessionButton.disabled = !project || !panelState ||
+    !panelState.targetWorkspace ||
+    panelState.targetWorkspace.state !== "matched";
 });
 
-function requestPair(reconnectServer) {
+function requestPair() {
   var selected = selectedSession();
   if (!selected) return;
   startButton.disabled = true;
-  reconnectButton.disabled = true;
-  setStatus(reconnectServer ?
-    "Checking this chat's project root and reconnecting…" :
-    "Connecting the inspected page to Clay…");
+  newSessionButton.disabled = true;
+  setStatus("Attaching this chat to the inspected workspace…");
   send({
     type: "live_ui_picker_pair",
     controlTabId: selected.controlTabId,
     projectSlug: selected.projectSlug,
     sessionId: selected.sessionId,
-    reconnectServer: reconnectServer === true,
+    attachWorkspace: true,
   }, function (response) {
     if (!response.ok) {
       setStatus(errorText(response.error, response.code), "error");
       startButton.disabled = false;
-      reconnectButton.disabled = false;
+      newSessionButton.disabled = !panelState || !panelState.targetWorkspace ||
+        panelState.targetWorkspace.state !== "matched";
       return;
     }
     setTimeout(loadState, 150);
@@ -398,11 +420,29 @@ function requestPair(reconnectServer) {
 }
 
 startButton.addEventListener("click", function () {
-  requestPair(false);
+  requestPair();
 });
 
-reconnectButton.addEventListener("click", function () {
-  requestPair(true);
+newSessionButton.addEventListener("click", function () {
+  var project = selectedProject();
+  if (!project) return;
+  startButton.disabled = true;
+  newSessionButton.disabled = true;
+  setStatus("Creating a coordinator chat for this inspected workspace…");
+  send({
+    type: "live_ui_picker_create",
+    controlTabId: project.controlTabId,
+    projectSlug: project.projectSlug,
+    attachWorkspace: true,
+  }, function (response) {
+    if (!response.ok) {
+      setStatus(errorText(response.error, response.code), "error");
+      newSessionButton.disabled = false;
+      startButton.disabled = sessions.length === 0;
+      return;
+    }
+    setTimeout(loadState, 150);
+  });
 });
 
 exitButton.addEventListener("click", function () {

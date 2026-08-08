@@ -26,10 +26,6 @@ function setLiveUiStatus(text, kind) {
 }
 
 function liveUiErrorText(error) {
-  if (error === "Start the session's local development server before opening Live UI") {
-    return "The selected chat does not own the development server for this tab. " +
-      "Choose the chat that started it, or start its server.";
-  }
   return error || "Live UI could not start.";
 }
 
@@ -53,13 +49,18 @@ function recentPairing(state) {
   return null;
 }
 
-function collectLiveUiProjects(controls) {
+function collectLiveUiProjects(controls, targetWorkspace) {
   var byKey = {};
+  var targetSlug = targetWorkspace && targetWorkspace.state === "matched" ?
+    targetWorkspace.projectSlug : null;
+  var manual = targetWorkspace && targetWorkspace.state === "manual";
+  if (!targetSlug && !manual) return [];
   for (var ci = 0; ci < controls.length; ci++) {
     var control = controls[ci];
     var projects = control.projects || [];
     for (var pi = 0; pi < projects.length; pi++) {
       var project = projects[pi];
+      if (!manual && project.projectSlug !== targetSlug) continue;
       var key = control.serverOrigin + "|" + project.projectSlug;
       var candidate = {
         key: key,
@@ -181,13 +182,14 @@ function optionsSignature(projects, preferredPairing) {
   });
 }
 
-function renderLiveUiOptions(controls, preferredPairing) {
-  if (document.activeElement === liveUiSessionSelect) return;
+function renderLiveUiOptions(controls, preferredPairing, targetWorkspace) {
+  if (document.activeElement === liveUiSessionSelect ||
+      document.activeElement === liveUiProjectSelect) return;
   var previousProject = liveUiProjects[Number(liveUiProjectSelect.value)] || null;
   var previousSession = liveUiOptions[Number(liveUiSessionSelect.value)] || null;
   var previousKey = previousProject ? previousProject.key : null;
   var previousSessionId = previousSession ? previousSession.sessionId : null;
-  var nextProjects = collectLiveUiProjects(controls);
+  var nextProjects = collectLiveUiProjects(controls, targetWorkspace);
   var nextSignature = optionsSignature(nextProjects, preferredPairing);
   if (nextSignature === liveUiOptionsSignature) return;
   var projectActive = document.activeElement === liveUiProjectSelect;
@@ -272,7 +274,7 @@ function renderConnectedSetup(activeTab, controls) {
   }
 }
 
-function renderSetupState(activeTab, controls, discoveringClay) {
+function renderSetupState(activeTab, controls, discoveringClay, targetWorkspace) {
   if (activeTabIsClay(activeTab, controls)) {
     liveUiBadge.textContent = "Connected";
     liveUiBadge.className = "live-ui-badge connected";
@@ -305,7 +307,33 @@ function renderSetupState(activeTab, controls, discoveringClay) {
     }
     return;
   }
+  if (!targetWorkspace || targetWorkspace.state === "checking") {
+    liveUiBadge.textContent = "Matching page";
+    liveUiBadge.className = "live-ui-badge";
+    liveUiProjectSelect.disabled = true;
+    liveUiSessionSelect.disabled = true;
+    liveUiStartBtn.disabled = true;
+    liveUiConnectBtn.classList.add("hidden");
+    liveUiHint.textContent = "Identifying the registered project for this server…";
+    return;
+  }
+  if (targetWorkspace.state !== "matched" &&
+      targetWorkspace.state !== "manual") {
+    liveUiBadge.textContent = "No project match";
+    liveUiBadge.className = "live-ui-badge";
+    liveUiProjectSelect.disabled = true;
+    liveUiSessionSelect.disabled = true;
+    liveUiStartBtn.disabled = true;
+    liveUiConnectBtn.classList.add("hidden");
+    liveUiHint.textContent = targetWorkspace.error ||
+      "This server is not inside a registered Clay project.";
+    return;
+  }
   renderConnectedSetup(activeTab, controls);
+  if (targetWorkspace.state === "manual") {
+    liveUiHint.textContent =
+      "Choose the project and chat for this remote preview; Clay will verify its exact origin.";
+  }
 }
 
 function renderPickerStatus(pickerStatus) {
@@ -340,8 +368,9 @@ function renderLiveUi(state) {
   liveUiSetup.classList.remove("hidden");
   var controls = state.controls || [];
   liveUiRecovery = recentPairing(state);
-  renderLiveUiOptions(controls, liveUiRecovery);
-  renderSetupState(activeTab, controls, state.discoveringClay);
+  renderLiveUiOptions(controls, liveUiRecovery, state.targetWorkspace);
+  renderSetupState(
+    activeTab, controls, state.discoveringClay, state.targetWorkspace);
   renderPickerStatus(state.status);
 }
 
@@ -374,6 +403,7 @@ liveUiStartBtn.addEventListener("click", function () {
     controlTabId: selected.controlTabId,
     projectSlug: selected.projectSlug,
     sessionId: selected.sessionId,
+    attachWorkspace: true,
   }, function (response) {
     if (chrome.runtime.lastError || !response || !response.ok) {
       setLiveUiStatus(liveUiErrorText(response && response.error), "error");

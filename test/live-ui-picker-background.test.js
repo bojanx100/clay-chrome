@@ -5,6 +5,8 @@ var path = require("node:path");
 var pickerModule = require("../live-ui-picker-background");
 var discoveryModule = require("../live-ui-picker-discovery");
 var targetModule = require("../live-ui-picker-target");
+var catalogModule = require("../live-ui-picker-catalog");
+var workspaceModule = require("../live-ui-picker-workspace");
 
 function harness(options) {
   options = options || {};
@@ -57,7 +59,9 @@ function harness(options) {
     function (tabId) { return ports[tabId] || null; },
     function () { return Object.keys(ports); },
     discoveryModule,
-    targetModule
+    targetModule,
+    catalogModule,
+    workspaceModule
   );
   if (options.connected !== false) picker.handlePortMessage(7, {
     type: "clay_live_ui_identity",
@@ -118,6 +122,69 @@ test("picker exposes connected Clay sessions and the active target tab", functio
   assert.strictEqual(response.controls[0].projects.length, 2);
   assert.strictEqual(response.controls[0].sessions[0].title, "Live UI work");
   assert.deepStrictEqual(response.recentPairings, recent);
+  assert.strictEqual(response.targetWorkspace.state, "checking");
+  assert.ok(state.portMessages.some(function (message) {
+    return message.type === "clay_live_ui_picker_probe_request";
+  }));
+});
+
+test("picker exposes the server-authoritative workspace match", function () {
+  var state = harness();
+  var response = null;
+  state.picker.handlePopupMessage({
+    type: "live_ui_picker_get_state",
+    targetTabId: 43,
+  }, function (value) { response = value; });
+  var probe = state.portMessages.filter(function (message) {
+    return message.type === "clay_live_ui_picker_probe_request";
+  })[0];
+  assert.ok(probe);
+  state.picker.handlePortMessage(7, {
+    type: "clay_live_ui_target_workspace",
+    requestId: probe.requestId,
+    targetTabId: 43,
+    state: "matched",
+    projectSlug: "clay",
+    projectLabel: "Clay",
+    worktreeLabel: "design",
+  });
+  state.picker.handlePopupMessage({
+    type: "live_ui_picker_get_state",
+    targetTabId: 43,
+  }, function (value) { response = value; });
+  assert.deepStrictEqual(response.targetWorkspace, {
+    targetTabId: 43,
+    state: "matched",
+    projectSlug: "clay",
+    projectLabel: "Clay",
+    worktreeLabel: "design",
+    code: null,
+    error: null,
+  });
+});
+
+test("picker preserves manual project choice for remote previews", function () {
+  var state = harness();
+  var response = null;
+  state.picker.handlePopupMessage({
+    type: "live_ui_picker_get_state",
+    targetTabId: 43,
+  }, function (value) { response = value; });
+  var probe = state.portMessages.filter(function (message) {
+    return message.type === "clay_live_ui_picker_probe_request";
+  })[0];
+  state.picker.handlePortMessage(7, {
+    type: "clay_live_ui_target_workspace",
+    requestId: probe.requestId,
+    targetTabId: 43,
+    state: "manual",
+    code: "LIVE_UI_TARGET_LISTENER_NOT_FOUND",
+  });
+  state.picker.handlePopupMessage({
+    type: "live_ui_picker_get_state",
+    targetTabId: 43,
+  }, function (value) { response = value; });
+  assert.strictEqual(response.targetWorkspace.state, "manual");
 });
 
 test("picker resolves the exact inspected tab requested by DevTools", function () {
@@ -300,6 +367,27 @@ test("picker pins the exact inspected tab instead of the active tab", function (
   assert.ok(request.tabs.some(function (tab) { return tab.id === 43; }));
 });
 
+test("picker can create a coordinator chat for the inspected workspace", function () {
+  var state = harness();
+  var response = null;
+  state.picker.handlePopupMessage({
+    type: "live_ui_picker_create",
+    controlTabId: 7,
+    projectSlug: "clay",
+    targetTabId: 43,
+    attachWorkspace: true,
+  }, function (value) { response = value; });
+  assert.strictEqual(response.ok, true);
+  var request = state.portMessages.filter(function (message) {
+    return message.type === "clay_live_ui_picker_create_request";
+  })[0];
+  assert.ok(request);
+  assert.strictEqual(request.targetTabId, 43);
+  assert.strictEqual(request.projectSlug, "clay");
+  assert.strictEqual(request.sessionId, null);
+  assert.strictEqual(request.attachWorkspace, true);
+});
+
 test("picker forwards guarded server reconnect intent and its error code", function () {
   var state = harness();
   var response = null;
@@ -420,17 +508,31 @@ test("picker implementation stays bounded and avoids credential storage", functi
   var discovery = fs.readFileSync(
     path.join(__dirname, "..", "live-ui-picker-discovery.js"), "utf8"
   );
+  var catalog = fs.readFileSync(
+    path.join(__dirname, "..", "live-ui-picker-catalog.js"), "utf8"
+  );
+  var workspace = fs.readFileSync(
+    path.join(__dirname, "..", "live-ui-picker-workspace.js"), "utf8"
+  );
   assert.ok(source.split("\n").length < 500);
   assert.ok(popup.split("\n").length < 500);
   assert.ok(discovery.split("\n").length < 500);
+  assert.ok(catalog.split("\n").length < 500);
+  assert.ok(workspace.split("\n").length < 500);
   assert.ok(html.indexOf("liveUiProjectSelect") < html.indexOf("liveUiSessionSelect"));
   assert.match(popup, /projectSlug: selected\.projectSlug/);
   assert.match(popup, /live_ui_picker_load_project/);
-  assert.match(popup, /does not own the development server/);
+  assert.match(popup, /attachWorkspace: true/);
+  assert.match(popup, /targetWorkspace/);
   assert.match(popup, /nextSignature === liveUiOptionsSignature/);
   assert.match(popup, /document\.activeElement === liveUiSessionSelect/);
   assert.match(background, /liveUiPicker\.handleTabUpdated/);
   assert.match(background, /live-ui-picker-discovery\.js/);
+  assert.ok(background.indexOf("live-ui-picker-catalog.js") <
+    background.indexOf("live-ui-picker-background.js"));
+  assert.ok(background.indexOf("live-ui-picker-workspace.js") <
+    background.indexOf("live-ui-picker-background.js"));
   assert.doesNotMatch(source, /storage\.local/);
   assert.doesNotMatch(popup, /localStorage/);
+  assert.doesNotMatch(catalog + workspace, /\b(?:const|let)\b|=>/);
 });

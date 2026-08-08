@@ -71,12 +71,14 @@ selection or worker outlines afterward.
 1. Keep Clay open in any browser tab.
 2. Open DevTools on the development page you want to change.
 3. Select the **Clay** DevTools panel.
-4. Choose a project, then a visible top-level chat or coordinator.
-5. Select **Start Live UI on inspected page**.
+4. Clay identifies the registered project and exact git worktree serving the
+   inspected page, then shows only that project's visible top-level chats.
+5. Choose an existing chat, or select **Create coordinator chat for this
+   workspace**, then start Live UI.
 6. Pick a component and report issues from the Clay panel. Paste screenshots,
    other images, long text, logs, code, or text files directly into the report
-   composer. Each completed worker remains available for testing, follow-up, or
-   approval.
+   composer. Each completed worker remains available for testing and follow-up
+   until you mark its card as done.
 
 The panel binds with `chrome.devtools.inspectedWindow.tabId`, so it remains
 attached to the inspected page even when another browser or Clay tab becomes
@@ -86,10 +88,14 @@ console/network evidence. User-pasted images and text are separately previewed,
 removable, bounded before relay, and attached to the selected worker. Select
 **Exit Live UI** to revoke the pairing.
 
-If the selected chat has a stale development-server binding, DevTools offers
-**Connect this chat to this server**. Clay accepts that reconnect only when the
-inspected page exactly matches the chat's current project root or worktree;
-cross-worktree adoption is rejected server-side.
+The chat does not need to start or own the development server. Clay resolves
+the inspected listener process to an access-authorized registered project and
+worktree, then binds the selected or newly created chat to that verified source
+root. Cross-project attachment and unverified remote origins are rejected
+server-side. A hosted preview has no local listener process to identify, so the
+panel keeps project/chat choice available and verifies the selected chat's
+server-derived preview origin before pairing; creating a new bound chat is
+available only for locally identifiable workspaces.
 
 ## Commands
 

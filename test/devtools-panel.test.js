@@ -46,7 +46,7 @@ function panelHarness(options) {
   var ids = [
     "connectionBadge", "connectionLabel", "targetTitle", "targetUrl",
     "tabNumber", "projectSelect", "sessionSelect", "startButton",
-    "reconnectButton",
+    "newSessionButton",
     "exitButton", "panelStatus", "setupWorkspace", "liveWorkspace",
     "liveSession", "liveProject", "liveAggregateDot", "liveAggregateLabel",
     "selectedCard", "emptySelectionCard", "selectedTitle", "selectedSource",
@@ -76,6 +76,13 @@ function panelHarness(options) {
     pairings: [],
     recentPairings: [],
     status: null,
+    targetWorkspace: {
+      targetTabId: 43,
+      state: "matched",
+      projectSlug: "clay",
+      projectLabel: "Clay",
+      worktreeLabel: "main",
+    },
   };
   var context = {
     chrome: {
@@ -307,10 +314,10 @@ test("panel routes state and pairing to the exact inspected tab", function () {
   assert.strictEqual(pair.targetTabId, 43);
   assert.strictEqual(pair.projectSlug, "clay");
   assert.strictEqual(pair.sessionId, 12);
-  assert.strictEqual(pair.reconnectServer, false);
+  assert.strictEqual(pair.attachWorkspace, true);
 });
 
-test("DevTools offers a guarded reconnect after a server ownership error", function () {
+test("DevTools filters projects to the inspected workspace", function () {
   var state = {
     ok: true,
     activeTab: { id: 43, title: "Account", url: "http://localhost:4242/account" },
@@ -323,26 +330,88 @@ test("DevTools offers a guarded reconnect after a server ownership error", funct
         projectLabel: "Clay",
         sessionsLoaded: true,
         sessions: [{ id: 12, title: "Live UI work" }],
+      }, {
+        projectSlug: "other",
+        projectLabel: "Other",
+        sessionsLoaded: true,
+        sessions: [{ id: 13, title: "Other work" }],
       }],
     }],
     pairings: [],
     recentPairings: [],
-    status: {
-      state: "error",
-      code: "LIVE_UI_DEV_SERVER_REQUIRED",
-      error: "Start the session's local development server before opening Live UI",
+    status: null,
+    targetWorkspace: {
+      targetTabId: 43,
+      state: "matched",
+      projectSlug: "clay",
+      projectLabel: "Clay",
+      worktreeLabel: "design",
     },
   };
   var harness = panelHarness({ state: state });
-  assert.strictEqual(
-    harness.elements.reconnectButton.classList.contains("hidden"), false);
-  harness.elements.reconnectButton.click();
-  var pair = harness.messages.filter(function (message) {
-    return message.type === "live_ui_picker_pair";
+  assert.strictEqual(harness.elements.projectSelect.children.length, 1);
+  assert.strictEqual(harness.elements.projectSelect.children[0].textContent, "Clay");
+  assert.match(harness.elements.panelStatus.textContent, /design/);
+});
+
+test("DevTools creates a coordinator chat for the inspected workspace", function () {
+  var harness = panelHarness();
+  harness.elements.newSessionButton.click();
+  var create = harness.messages.filter(function (message) {
+    return message.type === "live_ui_picker_create";
   })[0];
-  assert.ok(pair);
-  assert.strictEqual(pair.sessionId, 12);
-  assert.strictEqual(pair.reconnectServer, true);
+  assert.ok(create);
+  assert.strictEqual(create.projectSlug, "clay");
+  assert.strictEqual(create.attachWorkspace, true);
+  assert.strictEqual(create.targetTabId, 43);
+});
+
+test("DevTools retains project choice for a remote preview", function () {
+  var harness = panelHarness({
+    state: {
+      ok: true,
+      activeTab: { id: 43, title: "Preview", url: "https://preview.example.dev" },
+      controls: [{
+        controlTabId: 7,
+        serverOrigin: "http://localhost:2633",
+        currentProjectSlug: "clay",
+        projects: [{
+          projectSlug: "clay",
+          projectLabel: "Clay",
+          sessionsLoaded: true,
+          sessions: [{ id: 12, title: "Preview work" }],
+        }, {
+          projectSlug: "other",
+          projectLabel: "Other",
+          sessionsLoaded: true,
+          sessions: [{ id: 13, title: "Other preview" }],
+        }],
+      }],
+      pairings: [],
+      recentPairings: [],
+      status: null,
+      targetWorkspace: { targetTabId: 43, state: "manual" },
+    },
+  });
+  assert.strictEqual(harness.elements.projectSelect.children.length, 2);
+  assert.strictEqual(harness.elements.newSessionButton.disabled, true);
+  assert.match(harness.elements.panelStatus.textContent, /remote preview/i);
+});
+
+test("DevTools blocks pairing until the inspected workspace is identified", function () {
+  var harness = panelHarness({
+    state: {
+      ok: true,
+      activeTab: { id: 43, title: "Account", url: "http://localhost:4242/account" },
+      controls: [],
+      pairings: [],
+      recentPairings: [],
+      status: null,
+      targetWorkspace: { targetTabId: 43, state: "checking" },
+    },
+  });
+  assert.strictEqual(harness.elements.startButton.disabled, true);
+  assert.strictEqual(harness.elements.newSessionButton.disabled, true);
 });
 
 test("DevTools surface stays bounded and avoids browser-side settings", function () {
@@ -368,7 +437,7 @@ test("DevTools surface stays bounded and avoids browser-side settings", function
   assert.match(html, /Pick component/);
   assert.match(html, /Describe the issue or change/);
   assert.match(html, /Paste screenshots, images, long text/);
-  assert.match(html, /Connect this chat to this server/);
+  assert.match(html, /Create coordinator chat for this workspace/);
   assert.match(panel, /chrome\.devtools\.inspectedWindow\.tabId/);
   assert.match(panel, /targetTabId: inspectedTabId/);
   assert.match(panel, /live_ui_devtools_command/);
@@ -378,7 +447,7 @@ test("DevTools surface stays bounded and avoids browser-side settings", function
   assert.match(attachments, /addEventListener\("paste"/);
   assert.doesNotMatch(html + workspace, /collapse|expand/i);
   assert.match(panel, /document\.activeElement === sessionSelect/);
-  assert.match(panel, /projectActive = document\.activeElement === projectSelect/);
+  assert.match(panel, /document\.activeElement === projectSelect/);
   assert.match(entry, /chrome\.devtools\.panels\.create/);
   assert.ok(background.indexOf("live-ui-picker-target.js") <
     background.indexOf("live-ui-picker-background.js"));
