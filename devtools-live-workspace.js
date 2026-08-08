@@ -125,7 +125,10 @@
       button.type = "button";
       button.className = "report-action" + (className ? " " + className : "");
       button.textContent = label;
-      button.addEventListener("click", handler);
+      button.addEventListener("click", function (event) {
+        if (event && event.stopPropagation) event.stopPropagation();
+        handler(event);
+      });
       return button;
     }
 
@@ -133,8 +136,20 @@
       var item = document.createElement("article");
       item.className = "report-item" +
         (snapshot.focusedId === report.reportId ? " focused" : "");
+      item.tabIndex = 0;
+      item.setAttribute("role", "button");
+      item.setAttribute("aria-label", "View " + reportTitle(report));
       item.style.setProperty("--worker-color", safeColor(
         report.worker && report.worker.color));
+      function focusWorker() {
+        run("report.focus", { reportId: report.reportId });
+      }
+      item.addEventListener("click", focusWorker);
+      item.addEventListener("keydown", function (event) {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        focusWorker();
+      });
 
       var topline = document.createElement("div");
       topline.className = "report-topline";
@@ -179,7 +194,7 @@
       var actions = document.createElement("div");
       actions.className = "report-actions";
       actions.appendChild(actionButton("Add feedback", "", function () {
-        run("report.focus", { reportId: report.reportId });
+        focusWorker();
         refs.input.focus();
       }));
       if (report.status === "completed") {

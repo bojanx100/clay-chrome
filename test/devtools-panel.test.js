@@ -206,6 +206,43 @@ test("active DevTools workspace owns selection and report controls", function ()
   assert.strictEqual(report.payload.text, "Increase the clock contrast");
 });
 
+test("selecting a worker card focuses its component on the inspected page", function () {
+  var state = {
+    ok: true,
+    activeTab: { id: 43, title: "Account", url: "http://localhost:4242/account" },
+    controls: [],
+    pairings: [{ pairingId: "pair-1", targetTabId: 43 }],
+    recentPairings: [],
+    status: null,
+  };
+  var harness = panelHarness({
+    state: state,
+    snapshot: {
+      ok: true,
+      pairingId: "pair-1",
+      connected: true,
+      reports: [{
+        reportId: "report-1",
+        title: "Fix the account clock",
+        status: "working",
+        worker: { label: "Worker 12", color: "#55A7FF" },
+        locator: { selectors: ["#clock"] },
+      }],
+      counts: { working: 1 },
+      hmr: {},
+    },
+  });
+  harness.elements.reportList.children[0].dispatch("click", {
+    preventDefault: function () {},
+  });
+  var focus = harness.messages.filter(function (message) {
+    return message.type === "live_ui_devtools_command" &&
+      message.action === "report.focus";
+  })[0];
+  assert.ok(focus);
+  assert.strictEqual(focus.payload.reportId, "report-1");
+});
+
 test("DevTools composer sends pasted screenshots and long text", function () {
   var state = {
     ok: true,

@@ -235,12 +235,9 @@
       return;
     }
     if (!reportText) reportText = "Review the pasted Live UI context.";
-    if (reportId) {
-      if (!state.reportManager.get(reportId)) {
-        callback({ ok: false, error: "That worker change is no longer available." });
-        return;
-      }
-      state.reportManager.focus(reportId);
+    if (!state.reportManager.focusForSubmission(reportId)) {
+      callback({ ok: false, error: "That worker change is no longer available." });
+      return;
     }
     setComposeError("");
     setSubmitting(true);
@@ -277,9 +274,9 @@
     });
   }
   function focusReport(report) {
-    if (report && report.locator) restoreSelection(report.locator, true);
+    globalThis.ClayLiveUiTargetReports.syncSelectionFocus(report,
+      { clear: clearSelection, restore: restoreSelection });
   }
-
   function dismissReport(report, callback) {
     if (!report || state.submitting || !state.connected) {
       callback({ ok: false, error: "That worker card cannot be removed now." });
@@ -313,7 +310,6 @@
     if (envelope.event === "report.accepted" && state.pendingSubmission) {
       state.pendingSubmission = null;
       state.acceptedSequence++;
-      clearSelection(true);
       state.reportManager.focus(null);
       setSubmitting(false);
       setComposeError("");

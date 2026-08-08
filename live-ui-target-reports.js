@@ -24,6 +24,11 @@
     return false;
   }
 
+  function syncSelectionFocus(report, actions) {
+    actions.clear(true);
+    if (report && report.locator) actions.restore(report.locator, false);
+  }
+
   function create(options) {
     var reports = {};
     var focusedId = null;
@@ -113,6 +118,13 @@
       if (options.onFocus) options.onFocus(focused());
     }
 
+    function focusForSubmission(reportId) {
+      if (!reportId) return true;
+      if (!get(reportId)) return false;
+      if (focusedId !== reportId) focus(reportId);
+      return true;
+    }
+
     function upsert(report) {
       if (!report || !report.reportId) return;
       reports[report.reportId] = Object.assign({}, reports[report.reportId] || {}, report);
@@ -120,6 +132,7 @@
     }
 
     function replace(nextReports) {
+      var hadFocused = !!focusedId;
       reports = {};
       var values = Array.isArray(nextReports) ? nextReports : [];
       for (var i = 0; i < values.length; i++) {
@@ -127,6 +140,7 @@
       }
       if (focusedId && !reports[focusedId]) focusedId = null;
       refreshHighlights();
+      if (hadFocused && !focusedId && options.onFocus) options.onFocus(null);
     }
 
     function remove(reportId) {
@@ -221,6 +235,7 @@
     return {
       clear: clear,
       focus: focus,
+      focusForSubmission: focusForSubmission,
       focused: focused,
       get: get,
       handleHmr: handleHmr,
@@ -232,5 +247,8 @@
     };
   }
 
-  root.ClayLiveUiTargetReports = { create: create };
+  root.ClayLiveUiTargetReports = {
+    create: create,
+    syncSelectionFocus: syncSelectionFocus,
+  };
 })(typeof globalThis !== "undefined" ? globalThis : this);
