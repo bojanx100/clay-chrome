@@ -175,7 +175,9 @@
             pairingId: existing.pairingId,
           }, function () {});
           sendToControl(existing,
-            lifecycleEnvelope(existing, "target.closed", "pairing_replaced"));
+            lifecycleEnvelope(existing, "target.closed", {
+              reason: "pairing_replaced",
+            }));
           delete pairings[existing.pairingId];
         }
         var pairing = {
@@ -224,7 +226,9 @@
     function exitPairing(pairingId, callback) {
       var pairing = pairings[pairingId];
       if (!pairing) return callback({ ok: true, alreadyClosed: true });
-      sendToControl(pairing, lifecycleEnvelope(pairing, "target.closed", "extension_exit"));
+      sendToControl(pairing, lifecycleEnvelope(pairing, "target.closed", {
+        reason: "extension_exit",
+      }));
       sendToTarget(pairing, { type: "live_ui_destroy",
         pairingId: pairing.pairingId }, function () {});
       delete pairings[pairing.pairingId];
@@ -361,13 +365,13 @@
       return true;
     }
 
-    function lifecycleEnvelope(pairing, event, reason) {
+    function lifecycleEnvelope(pairing, event, payload) {
       return {
         type: "live_ui_relay",
         protocolVersion: 1,
         pairingId: pairing.pairingId,
         event: event,
-        payload: reason ? { reason: reason } : null,
+        payload: payload || null,
       };
     }
 
@@ -387,7 +391,9 @@
         var pairing = pairings[ids[i]];
         if (pairing.targetTabId !== tabId) continue;
         if (!tab || originOf(tab.url) !== pairing.allowedOrigin) {
-          sendToControl(pairing, lifecycleEnvelope(pairing, "target.closed", "origin_changed"));
+          sendToControl(pairing, lifecycleEnvelope(pairing, "target.closed", {
+            reason: "origin_changed",
+          }));
           delete pairings[pairing.pairingId];
           forget(pairing);
           save();
@@ -397,7 +403,9 @@
           injectTarget(reloadPairing, function (result) {
             if (result && result.ok) {
               sendToControl(reloadPairing,
-                lifecycleEnvelope(reloadPairing, "target.reconnect"));
+                lifecycleEnvelope(reloadPairing, "target.reconnect", {
+                  targetUrl: tab.url,
+                }));
             }
           });
         })(pairing);
@@ -410,7 +418,9 @@
         var pairing = pairings[ids[i]];
         if (pairing.targetTabId !== tabId && pairing.clayTabId !== tabId) continue;
         if (pairing.targetTabId === tabId) {
-          sendToControl(pairing, lifecycleEnvelope(pairing, "target.closed", "tab_closed"));
+          sendToControl(pairing, lifecycleEnvelope(pairing, "target.closed", {
+            reason: "tab_closed",
+          }));
           forget(pairing);
         }
         delete pairings[pairing.pairingId];

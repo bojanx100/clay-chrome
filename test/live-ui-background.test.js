@@ -302,6 +302,33 @@ test("control disconnect marks the target unavailable until server confirmation"
   }));
 });
 
+test("target reload reports its verified URL for cross-project reconnect", function () {
+  var state = harness();
+  state.runtime.pair({
+    protocolVersion: 1,
+    pairingId: "pair-reload",
+    targetTabId: 42,
+    allowedOrigin: "http://localhost:4242",
+    nonce: "nonce-reload",
+    reconnectCredential: "reconnect-reload",
+  }, function () {}, { clayTabId: 7 });
+  state.controlMessages.length = 0;
+
+  state.runtime.handleTabLoading(42);
+  state.runtime.handleTabComplete(42, {
+    id: 42,
+    url: "http://localhost:4242/pricing",
+  });
+
+  var reconnect = state.controlMessages.find(function (message) {
+    return message.envelope && message.envelope.event === "target.reconnect";
+  });
+  assert.ok(reconnect);
+  assert.deepStrictEqual(reconnect.envelope.payload, {
+    targetUrl: "http://localhost:4242/pricing",
+  });
+});
+
 test("a restored worker snapshot confirms the recovered target connection", function () {
   var state = harness();
   state.runtime.pair({
