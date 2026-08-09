@@ -129,8 +129,7 @@
       var port = getPort(tabId);
       var selected = pending.createSession ? null : findSelection(
         identity, pending.projectSlug, pending.sessionId);
-      if (!port || identity.currentProjectSlug !== pending.projectSlug ||
-          (!pending.createSession && !selected)) {
+      if (!port || (!pending.createSession && !selected)) {
         return false;
       }
       status = {
@@ -337,33 +336,13 @@
           clearPending(controlTabId);
           pendingPairs[controlTabId] = pending;
           pending.timer = setTimeout(function () {
-            failPending(controlTabId, "Clay did not finish opening the selected project.");
+            failPending(controlTabId, "Clay did not finish connecting the selected chat.");
           }, 20000);
-          if (identity.currentProjectSlug === projectSlug) {
-            if (!postPairRequest(controlTabId, pending, identity)) {
-              sendResponse({ ok: false, error: status.error });
-              return;
-            }
-            sendResponse({ ok: true, requestId: requestId });
+          if (!postPairRequest(controlTabId, pending, identity)) {
+            sendResponse({ ok: false, error: status.error });
             return;
           }
-          status = {
-            requestId: requestId,
-            pairingId: null,
-            state: "switching_project",
-            error: null,
-          };
-          chromeApi.tabs.update(controlTabId, {
-            url: identity.serverOrigin + "/p/" + encodeURIComponent(projectSlug) + "/",
-          }, function () {
-            var updateError = chromeApi.runtime.lastError;
-            if (updateError) {
-              failPending(controlTabId, "Clay could not open the selected project.");
-              sendResponse({ ok: false, error: status.error });
-              return;
-            }
-            sendResponse({ ok: true, requestId: requestId });
-          });
+          sendResponse({ ok: true, requestId: requestId });
         });
       });
     }

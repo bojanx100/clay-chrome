@@ -447,7 +447,7 @@ test("picker forwards guarded server reconnect intent and its error code", funct
   assert.strictEqual(response.status.code, "LIVE_UI_SERVER_ROOT_MISMATCH");
 });
 
-test("picker opens another project and pairs only after Clay reconnects there", function () {
+test("picker pairs another project through the existing Clay tab", function () {
   var state = harness();
   var response = null;
   state.picker.handlePopupMessage({
@@ -457,39 +457,7 @@ test("picker opens another project and pairs only after Clay reconnects there", 
     sessionId: 21,
   }, function (value) { response = value; });
   assert.strictEqual(response.ok, true);
-  assert.deepStrictEqual(state.updateCalls, [{
-    tabId: 7,
-    options: { url: "http://100.100.10.20:2633/p/urban-stay/" },
-  }]);
-  assert.strictEqual(state.portMessages.some(function (message) {
-    return message.type === "clay_live_ui_picker_pair_request";
-  }), false);
-
-  state.picker.handlePortDisconnected(7);
-  state.disconnect(7);
-  state.picker.handleTabUpdated(7, { status: "complete" }, {
-    id: 7,
-    url: "http://100.100.10.20:2633/p/urban-stay/",
-  });
-  assert.deepStrictEqual(state.scriptCalls, [{
-    target: { tabId: 7 },
-    files: ["content.js"],
-  }]);
-  state.reconnect(7);
-  state.picker.handlePortMessage(7, {
-    type: "clay_live_ui_identity",
-    identity: {
-      serverOrigin: "http://100.100.10.20:2633",
-      currentProjectSlug: "urban-stay",
-      projectSlug: "urban-stay",
-      projectLabel: "Urban Stay",
-      projects: [{
-        projectSlug: "urban-stay",
-        projectLabel: "Urban Stay",
-        sessions: [{ id: 21, title: "Booking page", coordinationMode: true }],
-      }],
-    },
-  });
+  assert.deepStrictEqual(state.updateCalls, []);
   var request = state.portMessages.filter(function (message) {
     return message.type === "clay_live_ui_picker_pair_request";
   })[0];
