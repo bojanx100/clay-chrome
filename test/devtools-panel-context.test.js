@@ -22,10 +22,7 @@ function fakeElement() {
 
 test("DevTools panel recovers when an extension reload invalidates its context", function () {
   var root = path.join(__dirname, "..");
-  var runtimePath = path.join(root, "devtools-panel-runtime.js");
-  var source = fs.existsSync(runtimePath) ?
-    fs.readFileSync(runtimePath, "utf8") + "\n" : "";
-  source += fs.readFileSync(path.join(root, "devtools-panel.js"), "utf8");
+  var source = fs.readFileSync(path.join(root, "devtools-panel.js"), "utf8");
   var elements = {};
   var reloads = 0;
   var intervalStarts = 0;
