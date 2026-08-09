@@ -85,6 +85,11 @@
     var actionError = "";
     var lastAcceptedSequence = null;
     var actionPending = false;
+    var drafts = options.drafts || null;
+    var draftKey = null;
+    var draftLoadSequence = 0;
+    var draftSaveTimer = null;
+    var restoringDraft = false;
     var attachments = ClayLiveUiDevtoolsAttachments.create({
       container: refs.attachmentList,
       input: refs.input,
@@ -94,9 +99,82 @@
       },
       onChange: function () {
         actionError = "";
+        scheduleDraftSave();
         if (snapshot) renderComposer();
       },
     });
+
+    function draftValue() {
+      return {
+        text: String(refs.input.value || ""),
+        attachments: attachments.snapshot(),
+        acceptedSequence: Number(snapshot && snapshot.acceptedSequence || 0),
+      };
+    }
+
+    function hasDraftContent(value) {
+      var attachmentValue = value && value.attachments || {};
+      return !!(value && value.text) ||
+        !!(attachmentValue.images && attachmentValue.images.length) ||
+        !!(attachmentValue.pastes && attachmentValue.pastes.length);
+    }
+
+    function saveDraft() {
+      if (draftSaveTimer) clearTimeout(draftSaveTimer);
+      draftSaveTimer = null;
+      if (!drafts || !draftKey || restoringDraft) return;
+      var value = draftValue();
+      if (hasDraftContent(value)) drafts.save(draftKey, value);
+      else drafts.remove(draftKey);
+    }
+
+    function scheduleDraftSave() {
+      if (!drafts || !draftKey || restoringDraft) return;
+      if (draftSaveTimer) clearTimeout(draftSaveTimer);
+      draftSaveTimer = setTimeout(saveDraft, 80);
+    }
+
+    function replaceDraft(value) {
+      restoringDraft = true;
+      refs.input.value = value && value.text || "";
+      attachments.restore(value && value.attachments || {});
+      restoringDraft = false;
+      if (snapshot) renderComposer();
+    }
+
+    function clearDraft() {
+      if (draftSaveTimer) clearTimeout(draftSaveTimer);
+      draftSaveTimer = null;
+      var key = draftKey;
+      replaceDraft(null);
+      if (drafts && key) drafts.remove(key);
+    }
+
+    function setDraftKey(value) {
+      var nextKey = value ? String(value) : null;
+      if (nextKey === draftKey) return;
+      saveDraft();
+      draftKey = nextKey;
+      var loadSequence = ++draftLoadSequence;
+      replaceDraft(null);
+      if (!drafts || !draftKey) return;
+      drafts.load(draftKey, function (value) {
+        if (loadSequence !== draftLoadSequence || !value) return;
+        var accepted = Number(snapshot && snapshot.acceptedSequence || 0);
+        var draftAccepted = Number(value.acceptedSequence || 0);
+        if (snapshot && accepted > draftAccepted) {
+          drafts.remove(draftKey);
+          return;
+        }
+        lastAcceptedSequence = draftAccepted;
+        replaceDraft(value);
+      });
+    }
+
+    function setDraftRoute(pairing) {
+      setDraftKey(pairing ? ["live-ui", pairing.targetTabId,
+        pairing.projectSlug || "project", pairing.sessionId || "session"].join(":") : null);
+    }
 
     function focusedReport() {
       if (!snapshot || !snapshot.focusedId) return null;
@@ -251,8 +329,7 @@
       snapshot = nextSnapshot;
       var accepted = Number(snapshot.acceptedSequence || 0);
       if (lastAcceptedSequence !== null && accepted > lastAcceptedSequence) {
-        refs.input.value = "";
-        attachments.clear();
+        clearDraft();
       }
       lastAcceptedSequence = accepted;
       refs.session.textContent = snapshot.sessionLabel || "Connected chat";
@@ -305,16 +382,19 @@
         refs.report.click();
       }
     });
+    refs.input.addEventListener("input", scheduleDraftSave);
 
     return {
       render: render,
+      setDraftKey: setDraftKey,
+      setDraftRoute: setDraftRoute,
+      flushDraft: saveDraft,
+      discardDraft: clearDraft,
       reset: function () {
         snapshot = null;
         actionError = "";
         actionPending = false;
         lastAcceptedSequence = null;
-        refs.input.value = "";
-        attachments.clear();
         refs.reportList.innerHTML = "";
       },
     };

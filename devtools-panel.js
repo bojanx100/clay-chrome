@@ -1,18 +1,11 @@
-var connectionBadge = document.getElementById("connectionBadge");
-var connectionLabel = document.getElementById("connectionLabel");
-var targetTitle = document.getElementById("targetTitle");
-var targetUrl = document.getElementById("targetUrl");
-var tabNumber = document.getElementById("tabNumber");
-var projectSelect = document.getElementById("projectSelect");
-var sessionSelect = document.getElementById("sessionSelect");
-var startButton = document.getElementById("startButton");
-var newSessionButton = document.getElementById("newSessionButton");
-var exitButton = document.getElementById("exitButton");
-var panelStatus = document.getElementById("panelStatus");
-var setupWorkspace = document.getElementById("setupWorkspace");
-var liveWorkspace = document.getElementById("liveWorkspace");
-var liveSession = document.getElementById("liveSession");
-var liveProject = document.getElementById("liveProject");
+var connectionBadge = document.getElementById("connectionBadge"),
+  connectionLabel = document.getElementById("connectionLabel"), targetTitle = document.getElementById("targetTitle"), targetUrl = document.getElementById("targetUrl");
+var tabNumber = document.getElementById("tabNumber"),
+  projectSelect = document.getElementById("projectSelect"), sessionSelect = document.getElementById("sessionSelect"), startButton = document.getElementById("startButton");
+var newSessionButton = document.getElementById("newSessionButton"),
+  exitButton = document.getElementById("exitButton"), panelStatus = document.getElementById("panelStatus"), setupWorkspace = document.getElementById("setupWorkspace");
+var liveWorkspace = document.getElementById("liveWorkspace"),
+  liveSession = document.getElementById("liveSession"), liveProject = document.getElementById("liveProject");
 var inspectedTabId = chrome.devtools.inspectedWindow.tabId;
 var panelState = null;
 var projects = [];
@@ -24,7 +17,6 @@ var loadingState = false;
 var loadingTarget = false;
 var liveUiWorkspace = null;
 var extensionContextLost = false;
-
 function setBadge(label, kind) {
   connectionLabel.textContent = label;
   connectionBadge.className = "connection-badge " + kind;
@@ -47,6 +39,7 @@ function recoverExtensionContext(error) {
   if (!/extension context invalidated/i.test(message)) return false;
   if (extensionContextLost) return true;
   extensionContextLost = true;
+  if (liveUiWorkspace && liveUiWorkspace.flushDraft) liveUiWorkspace.flushDraft();
   loadingState = loadingTarget = false;
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = null;
@@ -271,6 +264,7 @@ function renderTarget(tab) {
 }
 
 function renderActive(pairing) {
+  liveUiWorkspace.setDraftRoute(pairing);
   setBadge("Live", "live");
   setupWorkspace.classList.add("hidden");
   liveWorkspace.classList.remove("hidden");
@@ -334,6 +328,7 @@ function renderSetup(state) {
   liveUiWorkspace.reset();
   var controls = state.controls || [];
   var preferred = recentPairing(state);
+  if (preferred) liveUiWorkspace.setDraftRoute(preferred);
   renderOptions(controls, preferred);
   var targetWorkspace = state.targetWorkspace;
   if (!controls.length) {
@@ -481,6 +476,7 @@ newSessionButton.addEventListener("click", function () {
 exitButton.addEventListener("click", function () {
   var pairing = activePairing(panelState);
   if (!pairing) return;
+  liveUiWorkspace.discardDraft();
   exitButton.disabled = true;
   send({ type: "live_ui_picker_exit", pairingId: pairing.pairingId }, function (response) {
     exitButton.disabled = false;
@@ -489,7 +485,12 @@ exitButton.addEventListener("click", function () {
   });
 });
 
-liveUiWorkspace = ClayLiveUiDevtoolsWorkspace.create({ command: sendTarget });
+var liveUiDrafts = typeof ClayLiveUiDevtoolsDrafts !== "undefined" ?
+  ClayLiveUiDevtoolsDrafts.create() : null;
+liveUiWorkspace = ClayLiveUiDevtoolsWorkspace.create({
+  command: sendTarget,
+  drafts: liveUiDrafts,
+});
 loadState();
 if (!extensionContextLost) pollTimer = setInterval(loadState, 750);
 window.addEventListener("unload", function () {

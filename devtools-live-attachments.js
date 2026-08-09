@@ -101,6 +101,49 @@
       notify();
     }
 
+    function estimatedImageBytes(data) {
+      var value = String(data || "");
+      return Math.max(0, Math.floor(value.length * 3 / 4));
+    }
+
+    function restore(value) {
+      generation++;
+      images = [];
+      pastes = [];
+      pendingImageBytes = 0;
+      pendingImages = 0;
+      var restoredImages = value && Array.isArray(value.images) ? value.images : [];
+      for (var i = 0; i < restoredImages.length && images.length < MAX_IMAGES; i++) {
+        var image = restoredImages[i];
+        var size = Number(image && image.size) || estimatedImageBytes(image && image.data);
+        if (!image || !IMAGE_TYPES[image.mediaType] || !image.data ||
+            size > MAX_IMAGE_BYTES || totalImageBytes() + size > MAX_TOTAL_IMAGE_BYTES) {
+          continue;
+        }
+        images.push({
+          mediaType: image.mediaType,
+          data: String(image.data),
+          name: String(image.name || "pasted-image").slice(0, 120),
+          size: size,
+        });
+      }
+      var restoredPastes = value && Array.isArray(value.pastes) ? value.pastes : [];
+      for (var j = 0; j < restoredPastes.length && pastes.length < MAX_PASTES; j++) {
+        var paste = restoredPastes[j];
+        var text = typeof paste === "string" ? paste : String(paste && paste.text || "");
+        if (!text || text.length > MAX_PASTE_CHARS ||
+            totalPasteChars() + text.length > MAX_TOTAL_PASTE_CHARS) continue;
+        pastes.push({
+          text: text,
+          preview: typeof paste === "object" && paste.preview ?
+            preview(paste.preview, "Pasted text") : preview(text, "Pasted text"),
+          fileName: typeof paste === "object" && paste.fileName ?
+            String(paste.fileName).slice(0, 120) : null,
+        });
+      }
+      render();
+    }
+
     function addPaste(text, fileName) {
       var value = String(text || "");
       var stored = fileName ? "[Pasted text file: " + fileName + "]\n\n" + value : value;
@@ -222,6 +265,26 @@
         render();
       },
       hasContent: function () { return images.length > 0 || pastes.length > 0; },
+      restore: restore,
+      snapshot: function () {
+        return {
+          images: images.map(function (image) {
+            return {
+              mediaType: image.mediaType,
+              data: image.data,
+              name: image.name,
+              size: image.size,
+            };
+          }),
+          pastes: pastes.map(function (paste) {
+            return {
+              text: paste.text,
+              preview: paste.preview,
+              fileName: paste.fileName,
+            };
+          }),
+        };
+      },
       payload: function () {
         return {
           images: images.map(function (image) {
