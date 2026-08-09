@@ -302,6 +302,42 @@ test("control disconnect marks the target unavailable until server confirmation"
   }));
 });
 
+test("a restored worker snapshot confirms the recovered target connection", function () {
+  var state = harness();
+  state.runtime.pair({
+    protocolVersion: 1,
+    pairingId: "pair-recovered",
+    targetTabId: 42,
+    allowedOrigin: "http://localhost:4242",
+    nonce: "nonce-recovered",
+    reconnectCredential: "reconnect-recovered",
+  }, function () {}, { clayTabId: 7 });
+  state.targetMessages.length = 0;
+
+  assert.strictEqual(state.runtime.handleServerEnvelope({
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: "pair-recovered",
+    event: "reports.snapshot",
+    payload: { reports: [{ reportId: "report-1", status: "working" }] },
+  }), true);
+  assert.deepStrictEqual(state.targetMessages.map(function (entry) {
+    return {
+      type: entry.message.type,
+      state: entry.message.state || null,
+      event: entry.message.envelope && entry.message.envelope.event || null,
+    };
+  }), [{
+    type: "live_ui_connection",
+    state: "connected",
+    event: null,
+  }, {
+    type: "live_ui_server_event",
+    state: null,
+    event: "reports.snapshot",
+  }]);
+});
+
 test("selection clear removes persisted selection before reinjection", function () {
   var state = harness();
   var result = null;

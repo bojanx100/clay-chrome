@@ -349,6 +349,14 @@
         if (staleServerPairing) recoverPairing(metadata);
         return true;
       }
+      if (envelope.type === "live_ui_relay" &&
+          envelope.event === "reports.snapshot") {
+        sendToTarget(pairing, {
+          type: "live_ui_connection",
+          pairingId: pairing.pairingId,
+          state: "connected",
+        }, function () {});
+      }
       sendToTarget(pairing, { type: "live_ui_server_event", envelope: envelope }, function () {});
       return true;
     }
