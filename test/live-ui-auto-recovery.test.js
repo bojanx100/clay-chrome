@@ -74,6 +74,18 @@ test("stale server pairings automatically request safe recovery", function () {
     code: "LIVE_UI_NOT_FOUND",
   });
   assert.strictEqual(state.recovered.length, 1);
+
+  state = runtimeHarness();
+  state.runtime.handleServerEnvelope({
+    type: "live_ui_state",
+    protocolVersion: 1,
+    pairingId: "pair-stale",
+    state: "error",
+    code: "LIVE_UI_REVOKED",
+    error: "Live UI pairing is revoked",
+  });
+  assert.strictEqual(state.runtime.getPairings().length, 0);
+  assert.strictEqual(state.recovered.length, 1);
 });
 
 test("intentional server revocation does not automatically reconnect", function () {

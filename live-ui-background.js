@@ -335,6 +335,7 @@
       }
       var staleServerPairing = envelope.type === "live_ui_state" && (
         envelope.code === "LIVE_UI_NOT_FOUND" ||
+        envelope.code === "LIVE_UI_REVOKED" ||
         (envelope.state === "revoked" && envelope.reason === "server_restart"));
       if (envelope.type === "live_ui_state" &&
           (envelope.state === "revoked" || staleServerPairing)) {
