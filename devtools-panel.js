@@ -23,6 +23,7 @@ var pollTimer = null;
 var loadingState = false;
 var loadingTarget = false;
 var liveUiWorkspace = null;
+var extensionContextLost = false;
 
 function setBadge(label, kind) {
   connectionLabel.textContent = label;
@@ -41,15 +42,47 @@ function errorText(error, code) {
   return error || "Live UI could not start.";
 }
 
+function recoverExtensionContext(error) {
+  var message = error && error.message || String(error || "");
+  if (!/extension context invalidated/i.test(message)) return false;
+  if (extensionContextLost) return true;
+  extensionContextLost = true;
+  loadingState = loadingTarget = false;
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = null;
+  setupWorkspace.classList.remove("hidden");
+  liveWorkspace.classList.add("hidden");
+  projectSelect.disabled = sessionSelect.disabled = true;
+  startButton.disabled = newSessionButton.disabled = exitButton.disabled = true;
+  setBadge("Reloading", "checking");
+  setStatus("The extension was updated. Reloading the Clay panel…");
+  setTimeout(function () { window.location.reload(); }, 50);
+  return true;
+}
+
 function send(message, callback) {
+  if (extensionContextLost) return;
   var payload = Object.assign({}, message, { targetTabId: inspectedTabId });
-  chrome.runtime.sendMessage(payload, function (response) {
-    if (chrome.runtime.lastError) {
-      callback({ ok: false, error: chrome.runtime.lastError.message });
-      return;
-    }
-    callback(response || { ok: false, error: "The extension background is unavailable." });
-  });
+  try {
+    chrome.runtime.sendMessage(payload, function (response) {
+      var lastError = null;
+      try {
+        lastError = chrome.runtime.lastError;
+      } catch (error) {
+        if (recoverExtensionContext(error)) return;
+        lastError = error;
+      }
+      if (lastError) {
+        if (recoverExtensionContext(lastError)) return;
+        callback({ ok: false, error: lastError.message || String(lastError) });
+        return;
+      }
+      callback(response || { ok: false, error: "The extension background is unavailable." });
+    });
+  } catch (error) {
+    if (recoverExtensionContext(error)) return;
+    callback({ ok: false, error: error.message || String(error) });
+  }
 }
 
 function sendTarget(action, payload, callback) {
@@ -372,7 +405,7 @@ function renderState(state) {
 }
 
 function loadState() {
-  if (loadingState) return;
+  if (extensionContextLost || loadingState) return;
   loadingState = true;
   send({ type: "live_ui_picker_get_state" }, function (response) {
     loadingState = false;
@@ -458,7 +491,7 @@ exitButton.addEventListener("click", function () {
 
 liveUiWorkspace = ClayLiveUiDevtoolsWorkspace.create({ command: sendTarget });
 loadState();
-pollTimer = setInterval(loadState, 750);
+if (!extensionContextLost) pollTimer = setInterval(loadState, 750);
 window.addEventListener("unload", function () {
   if (pollTimer) clearInterval(pollTimer);
 });
