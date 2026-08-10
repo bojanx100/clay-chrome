@@ -141,6 +141,108 @@ test("recovery waits for the refreshed Clay tab to identify itself", function ()
   assert.strictEqual(started[0].targetTabId, 42);
 });
 
+test("recovery waits through a transiently empty chat catalog", function () {
+  var identity = {
+    projects: [{
+      projectSlug: "webapp",
+      sessionsLoaded: true,
+      sessions: [],
+    }],
+  };
+  var failures = [];
+  var requested = [];
+  var scheduled = [];
+  var started = [];
+  var recovery = recoveryModule.createRecovery({
+    getIdentity: function () { return identity; },
+    getPort: function () { return { postMessage: function () {} }; },
+    projectBySlug: catalogModule.projectBySlug,
+    findSelection: function (value, projectSlug, sessionId) {
+      return value.projects[0].sessions.filter(function (session) {
+        return String(session.id) === String(sessionId);
+      })[0] || null;
+    },
+    requestIdentity: function (tabId) { requested.push(tabId); },
+    loadProject: function () {},
+    startPair: function (message, callback) {
+      started.push(message);
+      callback({ ok: true });
+    },
+    scheduleRetry: function (callback) {
+      scheduled.push(callback);
+      return callback;
+    },
+    cancelRetry: function () {},
+    onFailure: function (message) { failures.push(message); },
+  });
+
+  recovery.recover({
+    clayTabId: 7,
+    targetTabId: 42,
+    projectSlug: "webapp",
+    sessionId: "session-redesign",
+  });
+
+  assert.deepStrictEqual(failures, []);
+  assert.strictEqual(started.length, 0);
+  assert.strictEqual(scheduled.length, 1);
+
+  identity.projects[0].sessions = [{ id: "session-redesign" }];
+  scheduled.shift()();
+
+  assert.deepStrictEqual(requested, [7]);
+  assert.strictEqual(started.length, 1);
+  assert.strictEqual(started[0].sessionId, "session-redesign");
+  assert.deepStrictEqual(failures, []);
+});
+
+test("recovery reports a truly missing chat after the refresh window", function () {
+  var clock = 1000;
+  var failures = [];
+  var scheduled = [];
+  var recovery = recoveryModule.createRecovery({
+    getIdentity: function () {
+      return {
+        projects: [{
+          projectSlug: "webapp",
+          sessionsLoaded: true,
+          sessions: [],
+        }],
+      };
+    },
+    getPort: function () { return { postMessage: function () {} }; },
+    projectBySlug: catalogModule.projectBySlug,
+    findSelection: function () { return null; },
+    requestIdentity: function () {},
+    loadProject: function () {},
+    startPair: function () {},
+    now: function () { return clock; },
+    retryWindowMs: 500,
+    scheduleRetry: function (callback) {
+      scheduled.push(callback);
+      return callback;
+    },
+    cancelRetry: function () {},
+    onFailure: function (message) { failures.push(message); },
+  });
+
+  recovery.recover({
+    clayTabId: 7,
+    targetTabId: 42,
+    projectSlug: "webapp",
+    sessionId: "session-deleted",
+  });
+  assert.deepStrictEqual(failures, []);
+
+  clock = 1500;
+  scheduled.shift()();
+
+  assert.deepStrictEqual(failures, [
+    "The previous Live UI chat is no longer available.",
+  ]);
+  assert.strictEqual(scheduled.length, 0);
+});
+
 test("picker recovery restores the same project session and target", function () {
   var portMessages = [];
   var ports = { 7: { postMessage: function (message) { portMessages.push(message); } } };
