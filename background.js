@@ -137,10 +137,10 @@ var COMMANDS = {
   tab_console: getConsoleLogs,
   tab_network: getNetworkLog,
   tab_dom: getDOM,
-  tab_evaluate: evaluateScript,
   tab_page_text: getPageText,
 
   // Debugging (requires chrome.debugger attach)
+  tab_evaluate: evaluateScript,
   tab_screenshot: takeScreenshot,
   tab_navigate: navigateTo,
   tab_wait_navigation: waitForNavigation,
@@ -481,31 +481,50 @@ function getPageText(args, callback) {
   }, callback);
 }
 
+// --- Arbitrary script evaluation (debugger required) ---
+
 function evaluateScript(args, callback) {
-  // For arbitrary script evaluation, use a wrapper that evals the expression
-  chrome.scripting.executeScript(
-    {
-      target: { tabId: args.tabId },
-      world: "MAIN",
-      func: function (script) {
-        try {
-          return { value: eval(script) };
-        } catch (e) {
-          return { error: e.message };
-        }
+  // CDP evaluates directly in the inspected runtime instead of asking the page
+  // to compile a string with eval(), which strict page CSP correctly blocks.
+  withDebugger(args.tabId, function (tabId, err) {
+    if (err) return callback({ error: err });
+    chrome.debugger.sendCommand(
+      { tabId: tabId },
+      "Runtime.evaluate",
+      {
+        expression: args.script,
+        returnByValue: true,
+        silent: true,
+        // Preserve the page's CSP for eval(), Function(), and string timers used
+        // by the evaluated expression. Runtime.evaluate itself does not need it.
+        allowUnsafeEvalBlockedByCSP: false,
       },
-      args: [args.script],
-    },
-    function (results) {
-      if (chrome.runtime.lastError) {
-        return callback({ error: chrome.runtime.lastError.message });
+      function (result) {
+        var runtimeError = chrome.runtime.lastError &&
+          chrome.runtime.lastError.message;
+        detachDebugger(tabId);
+        if (runtimeError || !result) {
+          return callback({ error: runtimeError || "Script evaluation failed" });
+        }
+        if (result.exceptionDetails) {
+          var exception = result.exceptionDetails.exception || {};
+          var description = exception.description ||
+            result.exceptionDetails.text || "Script evaluation failed";
+          var message = String(description).split("\n")[0]
+            .replace(/^Uncaught\s+/, "");
+          if (exception.className &&
+              message.indexOf(exception.className + ": ") === 0) {
+            message = message.substring(exception.className.length + 2);
+          }
+          return callback({ error: message });
+        }
+        if (!result.result) {
+          return callback({ error: "No result from script evaluation" });
+        }
+        callback({ value: result.result.value });
       }
-      if (!results || !results[0]) {
-        return callback({ error: "No result from script execution" });
-      }
-      callback(results[0].result);
-    }
-  );
+    );
+  });
 }
 
 // ============================================================
