@@ -1,6 +1,8 @@
 (function () {
-if (window.__clayExtensionBridgeLoaded) return;
-window.__clayExtensionBridgeLoaded = true;
+var previousBridge = window.__clayExtensionBridge;
+if (previousBridge && typeof previousBridge.stop === "function") {
+  try { previousBridge.stop(); } catch (e) {}
+}
 
 // Clay Chrome Extension - Content Script
 // Injected into Clay tabs. Bridges background.js <-> Clay page.
@@ -9,11 +11,15 @@ window.__clayExtensionBridgeLoaded = true;
 
 var port = null;
 var reconnectTimer = null;
+var stopped = false;
 
 function connectPort() {
+  if (stopped) return;
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  var connectedPort = null;
   try {
-    port = chrome.runtime.connect({ name: "clay-tab" });
+    connectedPort = chrome.runtime.connect({ name: "clay-tab" });
+    port = connectedPort;
     console.log("[clay-ext] port connected");
   } catch (e) {
     console.log("[clay-ext] port connect failed:", e.message);
@@ -23,7 +29,8 @@ function connectPort() {
   }
 
   // Messages from background -> Clay page
-  port.onMessage.addListener(function (msg) {
+  connectedPort.onMessage.addListener(function (msg) {
+    if (stopped || port !== connectedPort) return;
     window.postMessage(
       {
         source: "clay-chrome-extension",
@@ -33,7 +40,8 @@ function connectPort() {
     );
   });
 
-  port.onDisconnect.addListener(function () {
+  connectedPort.onDisconnect.addListener(function () {
+    if (stopped || port !== connectedPort) return;
     var err = chrome.runtime.lastError;
     console.log("[clay-ext] port disconnected", err ? err.message : "");
     port = null;
@@ -54,7 +62,7 @@ function connectPort() {
 }
 
 function scheduleReconnect() {
-  if (reconnectTimer) return;
+  if (stopped || reconnectTimer) return;
   reconnectTimer = setTimeout(function () {
     reconnectTimer = null;
     if (!port) {
@@ -65,15 +73,13 @@ function scheduleReconnect() {
 }
 
 function ensurePort() {
+  if (stopped) return false;
   if (port) return true;
   connectPort();
   return !!port;
 }
 
-connectPort();
-
-// Relay messages from Clay page to background.js
-window.addEventListener("message", function (event) {
+function handlePageMessage(event) {
   if (event.source !== window) return;
   if (!event.data || event.data.source !== "clay-page") return;
 
@@ -89,5 +95,26 @@ window.addEventListener("message", function (event) {
       }
     }
   }
-});
+}
+
+function stopBridge() {
+  if (stopped) return;
+  stopped = true;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  window.removeEventListener("message", handlePageMessage);
+  var oldPort = port;
+  port = null;
+  if (oldPort && typeof oldPort.disconnect === "function") {
+    try { oldPort.disconnect(); } catch (e) {}
+  }
+}
+
+window.__clayExtensionBridge = { stop: stopBridge };
+connectPort();
+
+// Relay messages from Clay page to background.js
+window.addEventListener("message", handlePageMessage);
 })();

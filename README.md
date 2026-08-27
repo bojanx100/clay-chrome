@@ -15,9 +15,18 @@ Alternatively, load unpacked from this repo for development:
 3. Enable "Developer mode"
 4. Click "Load unpacked" and select the cloned directory
 
+Reloading or updating the extension automatically reinjects its bridge into
+already-open Clay tabs. A Clay page reload is not required for the extension to
+reattach.
+
 ## How it works
 
 The extension never talks to the Clay server directly. It piggybacks on the Clay web page that is already open in your browser.
+
+> **Retracted:** An earlier version of this diagram described one-off
+> `runtime.sendMessage` / `tabs.sendMessage` calls. The bridge actually uses a
+> long-lived content-script port, and the service worker reinjects that bridge
+> into disconnected Clay tabs after an extension reload or browser startup.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#000', 'noteBkgColor': '#fff9c4', 'noteTextColor': '#000', 'signalTextColor': '#000', 'actorTextColor': '#000', 'actorBkg': '#4a90d9', 'actorBorder': '#2c5f9e', 'actorLineColor': '#333', 'signalColor': '#333'}}}%%
@@ -31,10 +40,10 @@ sequenceDiagram
     Note over S,T: Command flow (e.g. screenshot, console read)
     S->>P: WebSocket: extension_command
     P->>C: window.postMessage
-    C->>B: chrome.runtime.sendMessage
+    C->>B: chrome.runtime.connect port
     B->>T: chrome.scripting / chrome.debugger
     T-->>B: result
-    B-->>C: chrome.tabs.sendMessage
+    B-->>C: port.postMessage
     C-->>P: window.postMessage
     P-->>S: WebSocket: extension_result
 
@@ -51,6 +60,7 @@ clay-chrome/
   manifest.json     Manifest V3 config
   background.js     Service worker: tab tracking, command dispatch
   content.js        Injected into Clay tabs: message bridge
+  content-bridge-recovery.js  Reinjects the bridge after worker/update restarts
   inject.js         Injected into target tabs: console/network capture
   live-ui-evidence.js  Masked screenshot and bounded diagnostics capture
   devtools*.{html,css,js}  Complete docked Live UI workspace for the inspected tab

@@ -1,7 +1,8 @@
 // Clay Chrome Extension - Background Service Worker
 // Tracks open tabs and relays commands between Clay page and browser
 // Bridges local MCP servers to Clay via Native Messaging
-importScripts("live-ui-evidence.js", "live-ui-react-background.js",
+importScripts("content-bridge-recovery.js",
+  "live-ui-evidence.js", "live-ui-react-background.js",
   "live-ui-background.js",
   "live-ui-devtools-background.js",
   "live-ui-picker-discovery.js",
@@ -61,6 +62,15 @@ function isClayUrl(url) {
     if (CLAY_URL_PATTERNS[i].test(url)) return true;
   }
   return false;
+}
+
+function isClayProjectUrl(url) {
+  if (!isClayUrl(url)) return false;
+  try {
+    return /^\/p\/[a-z0-9_-]+\/?$/.test(new URL(url).pathname);
+  } catch (e) {
+    return false;
+  }
 }
 
 function isClayTab(tab) {
@@ -244,6 +254,11 @@ chrome.runtime.onConnect.addListener(function (port) {
     delete clayPorts[tabId];
     clayTabIds.delete(tabId);
   });
+});
+
+var contentBridgeRecovery = ClayContentBridgeRecovery.install(chrome, {
+  getPort: function (tabId) { return clayPorts[tabId] || null; },
+  isClayUrl: isClayProjectUrl,
 });
 
 // --- Popup Message Handling (still uses one-off messages) ---
