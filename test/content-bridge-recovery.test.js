@@ -5,6 +5,19 @@ var path = require("node:path");
 
 var recoveryModule = require("../content-bridge-recovery");
 
+test("recovery matches only Clay project URLs, including hosted development ports", function () {
+  assert.strictEqual(recoveryModule.isClayProjectUrl(
+    "https://100-124-11-117.d.clay.studio:7292/p/lead/"), true);
+  assert.strictEqual(recoveryModule.isClayProjectUrl(
+    "https://localhost:7292/p/clay/"), true);
+  assert.strictEqual(recoveryModule.isClayProjectUrl(
+    "https://127.0.0.1:7292/p/clay/"), true);
+  assert.strictEqual(recoveryModule.isClayProjectUrl(
+    "https://clay.studio.evil.example/p/lead/"), false);
+  assert.strictEqual(recoveryModule.isClayProjectUrl(
+    "https://example.com/p/lead/"), false);
+});
+
 function harness() {
   var calls = {
     injected: [],
@@ -33,7 +46,7 @@ function harness() {
       query: function (query, callback) {
         callback([
           { id: 7, url: "https://localhost:7292/p/clay/" },
-          { id: 8, url: "https://localhost:7292/p/lead/" },
+          { id: 8, url: "https://100-124-11-117.d.clay.studio:7292/p/lead/" },
           { id: 9, url: "https://example.com/" },
         ]);
       },
@@ -50,9 +63,6 @@ function harness() {
     options: {
       getPort: function (tabId) { return connected[tabId] || null; },
       initialDelayMs: 400,
-      isClayUrl: function (url) {
-        return String(url || "").indexOf("https://localhost:7292/p/") === 0;
-      },
       setTimer: setTimer,
       logger: { log: function () {}, warn: function () {} },
     },

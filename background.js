@@ -49,34 +49,6 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
   }
 });
 
-// Clay tab URL patterns (must match manifest content_scripts.matches)
-var CLAY_URL_PATTERNS = [
-  /^https?:\/\/[^/]*\.clay\.studio\//,
-  /^https?:\/\/localhost(:\d+)?\//,
-  /^https?:\/\/127\.0\.0\.1(:\d+)?\//
-];
-
-function isClayUrl(url) {
-  if (!url) return false;
-  for (var i = 0; i < CLAY_URL_PATTERNS.length; i++) {
-    if (CLAY_URL_PATTERNS[i].test(url)) return true;
-  }
-  return false;
-}
-
-function isClayProjectUrl(url) {
-  if (!isClayUrl(url)) return false;
-  try {
-    return /^\/p\/[a-z0-9_-]+\/?$/.test(new URL(url).pathname);
-  } catch (e) {
-    return false;
-  }
-}
-
-function isClayTab(tab) {
-  return isClayUrl(tab.url);
-}
-
 function broadcastTabList() {
   chrome.tabs.query({}, function (tabs) {
     allTabs = [];
@@ -258,7 +230,6 @@ chrome.runtime.onConnect.addListener(function (port) {
 
 var contentBridgeRecovery = ClayContentBridgeRecovery.install(chrome, {
   getPort: function (tabId) { return clayPorts[tabId] || null; },
-  isClayUrl: isClayProjectUrl,
 });
 
 // --- Popup Message Handling (still uses one-off messages) ---

@@ -1,8 +1,22 @@
 (function (root) {
+  function isClayProjectUrl(url) {
+    try {
+      var parsed = new URL(url);
+      var hostname = String(parsed.hostname || "").toLowerCase();
+      var isClayHost = hostname === "localhost" ||
+        hostname === "127.0.0.1" ||
+        hostname.endsWith(".clay.studio");
+      return (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+        isClayHost && /^\/p\/[a-z0-9_-]+\/?$/.test(parsed.pathname);
+    } catch (e) {
+      return false;
+    }
+  }
+
   function createRecovery(chromeApi, options) {
     options = options || {};
     var getPort = options.getPort || function () { return null; };
-    var isClayUrl = options.isClayUrl || function () { return false; };
+    var isClayUrl = options.isClayUrl || isClayProjectUrl;
     var setTimer = options.setTimer || setTimeout;
     var logger = options.logger || console;
     var scheduleTimer = null;
@@ -66,6 +80,7 @@
   root.ClayContentBridgeRecovery = {
     createRecovery: createRecovery,
     install: install,
+    isClayProjectUrl: isClayProjectUrl,
   };
   if (typeof module !== "undefined" && module.exports) {
     module.exports = root.ClayContentBridgeRecovery;
