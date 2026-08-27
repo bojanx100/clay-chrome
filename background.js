@@ -368,56 +368,135 @@ function withDebugger(tabId, fn) {
   });
 }
 
-function detachDebugger(tabId) {
+function detachDebugger(tabId, callback) {
   chrome.debugger.detach({ tabId: tabId }, function () {
     // Ignore errors on detach
     void chrome.runtime.lastError;
+    if (callback) callback();
+  });
+}
+
+function waitForScreenshotReady(tabId, callback) {
+  var finished = false;
+  var timer = null;
+
+  function finish(error) {
+    if (finished) return;
+    finished = true;
+    chrome.tabs.onUpdated.removeListener(handleUpdated);
+    if (timer) clearTimeout(timer);
+    callback(error || null);
+  }
+
+  function handleUpdated(updatedTabId, changeInfo, tab) {
+    if (updatedTabId !== tabId || changeInfo.status !== "complete") return;
+    if (tab && tab.discarded) {
+      finish("Tab " + tabId + " is discarded and has no rendered surface; activate it in Chrome before retrying");
+      return;
+    }
+    finish(null);
+  }
+
+  chrome.tabs.onUpdated.addListener(handleUpdated);
+  timer = setTimeout(function () {
+    finish("Tab " + tabId + " did not finish loading before screenshot");
+  }, 8000);
+
+  chrome.tabs.get(tabId, function (tab) {
+    var tabError = chrome.runtime.lastError && chrome.runtime.lastError.message;
+    if (tabError || !tab) {
+      finish(tabError || "Tab " + tabId + " was not found");
+      return;
+    }
+    if (tab.discarded || tab.status === "unloaded") {
+      finish("Tab " + tabId + " is discarded and has no rendered surface; activate it in Chrome before retrying");
+      return;
+    }
+    if (tab.status === "complete") finish(null);
   });
 }
 
 function takeScreenshot(args, callback) {
-  withDebugger(args.tabId, function (tabId, err) {
-    if (err) return callback({ error: err });
+  waitForScreenshotReady(args.tabId, function (readyError) {
+    if (readyError) return callback({ error: readyError });
 
-    function captureWithClip(clip) {
-      var params = { format: "png", quality: 80 };
-      if (clip) params.clip = clip;
-      chrome.debugger.sendCommand(
-        { tabId: tabId },
-        "Page.captureScreenshot",
-        params,
-        function (result) {
-          detachDebugger(tabId);
-          if (chrome.runtime.lastError || !result) {
-            return callback({ error: (chrome.runtime.lastError || {}).message || "Screenshot failed" });
+    withDebugger(args.tabId, function (tabId, err) {
+      if (err) return callback({ error: err });
+
+      function finish(result) {
+        detachDebugger(tabId, function () {
+          callback(result);
+        });
+      }
+
+      function captureWithClip(clip) {
+        var params = { format: "png", quality: 80 };
+        if (clip) params.clip = clip;
+        chrome.debugger.sendCommand(
+          { tabId: tabId },
+          "Page.captureScreenshot",
+          params,
+          function (result) {
+            var captureError = chrome.runtime.lastError &&
+              chrome.runtime.lastError.message;
+            if (captureError || !result) {
+              finish({ error: captureError || "Screenshot failed" });
+              return;
+            }
+            finish({ image: result.data });
           }
-          callback({ image: result.data });
-        }
-      );
-    }
+        );
+      }
 
-    if (args.selector) {
-      // Get bounding box of the target element
+      function selectClip() {
+        if (!args.selector) {
+          captureWithClip(null);
+          return;
+        }
+        // Get bounding box of the target element
+        chrome.debugger.sendCommand(
+          { tabId: tabId },
+          "Runtime.evaluate",
+          {
+            expression: "(function() { var el = document.querySelector(" + JSON.stringify(args.selector) + "); if (!el) return null; var r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; })()",
+            returnByValue: true,
+          },
+          function (result) {
+            var selectorError = chrome.runtime.lastError &&
+              chrome.runtime.lastError.message;
+            if (selectorError || !result || !result.result ||
+                !result.result.value) {
+              // Element not found or error, fall back to full viewport
+              captureWithClip(null);
+              return;
+            }
+            var rect = result.result.value;
+            captureWithClip({ x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 });
+          }
+        );
+      }
+
+      // A hidden renderer can report navigation complete before its first new
+      // surface is committed. Give the new document one synchronous renderer
+      // task before asking the compositor for its current surface.
       chrome.debugger.sendCommand(
         { tabId: tabId },
         "Runtime.evaluate",
         {
-          expression: "(function() { var el = document.querySelector(" + JSON.stringify(args.selector) + "); if (!el) return null; var r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; })()",
+          expression: "document.readyState",
           returnByValue: true,
         },
         function (result) {
-          if (chrome.runtime.lastError || !result || !result.result || !result.result.value) {
-            // Element not found or error, fall back to full viewport
-            captureWithClip(null);
+          var primeError = chrome.runtime.lastError &&
+            chrome.runtime.lastError.message;
+          if (primeError || !result) {
+            finish({ error: primeError || "Screenshot renderer was not ready" });
             return;
           }
-          var rect = result.result.value;
-          captureWithClip({ x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 });
+          selectClip();
         }
       );
-    } else {
-      captureWithClip(null);
-    }
+    });
   });
 }
 

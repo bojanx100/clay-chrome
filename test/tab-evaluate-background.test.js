@@ -11,7 +11,11 @@ function loadDebuggerCommands(chromeApi) {
   var end = source.indexOf("// MCP Bridge", start);
   assert.notStrictEqual(start, -1, "debugger helpers must exist");
   assert.notStrictEqual(end, -1, "MCP section marker must exist");
-  var context = { chrome: chromeApi };
+  var context = {
+    chrome: chromeApi,
+    clearTimeout: clearTimeout,
+    setTimeout: setTimeout,
+  };
   vm.runInNewContext(source.substring(start, end), context);
   return context;
 }
@@ -33,9 +37,39 @@ function loadReconnectCommand(spies) {
 
 function harness(options) {
   options = options || {};
-  var calls = { attach: [], sendCommand: [], detach: [] };
+  var calls = {
+    attach: [],
+    sendCommand: [],
+    detach: [],
+    tabsGet: [],
+  };
+  var tab = options.tab || {
+    id: 42,
+    discarded: false,
+    status: "complete",
+  };
+  var updatedListeners = [];
   var chromeApi = {
     runtime: { lastError: null },
+    tabs: {
+      get: function (tabId, callback) {
+        calls.tabsGet.push(tabId);
+        chromeApi.runtime.lastError = options.tabError
+          ? { message: options.tabError }
+          : null;
+        callback(options.tabError ? null : tab);
+        chromeApi.runtime.lastError = null;
+      },
+      onUpdated: {
+        addListener: function (listener) {
+          updatedListeners.push(listener);
+        },
+        removeListener: function (listener) {
+          var index = updatedListeners.indexOf(listener);
+          if (index !== -1) updatedListeners.splice(index, 1);
+        },
+      },
+    },
     debugger: {
       attach: function (target, version, callback) {
         calls.attach.push({ target: target, version: version });
@@ -78,6 +112,21 @@ function harness(options) {
       return new Promise(function (resolve) {
         commands.clickElement({ tabId: 42, selector: selector }, resolve);
       });
+    },
+    screenshot: function (selector) {
+      return new Promise(function (resolve) {
+        commands.takeScreenshot({ tabId: 42, selector: selector }, resolve);
+      });
+    },
+    completeNavigation: function () {
+      tab.status = "complete";
+      var listeners = updatedListeners.slice();
+      for (var i = 0; i < listeners.length; i++) {
+        listeners[i](42, { status: "complete" }, tab);
+      }
+    },
+    updatedListenerCount: function () {
+      return updatedListeners.length;
     },
   };
 }
@@ -192,6 +241,52 @@ test("tab_click dispatches trusted pointer input at the element center", async f
   assert.strictEqual(state.calls.sendCommand[2].params.type, "mousePressed");
   assert.strictEqual(state.calls.sendCommand[3].params.type, "mouseReleased");
   assert.strictEqual(state.calls.detach.length, 1);
+});
+
+test("tab_screenshot waits for navigation and primes the renderer", async function () {
+  var state = harness({
+    tab: { id: 42, discarded: false, status: "loading" },
+    commandResponse: function (method) {
+      if (method === "Runtime.evaluate") {
+        return { result: { value: "complete" } };
+      }
+      if (method === "Page.captureScreenshot") {
+        return { data: "fresh-png" };
+      }
+      return {};
+    },
+  });
+
+  var pending = state.screenshot();
+  assert.strictEqual(state.calls.attach.length, 0);
+  assert.strictEqual(state.updatedListenerCount(), 1);
+
+  state.completeNavigation();
+  var result = await pending;
+
+  assert.strictEqual(result.image, "fresh-png");
+  assert.deepStrictEqual(state.calls.sendCommand.map(function (call) {
+    return call.method;
+  }), ["Runtime.evaluate", "Page.captureScreenshot"]);
+  assert.strictEqual(
+    state.calls.sendCommand[0].params.expression,
+    "document.readyState");
+  assert.strictEqual(state.calls.detach.length, 1);
+  assert.strictEqual(state.updatedListenerCount(), 0);
+});
+
+test("tab_screenshot rejects discarded tabs before debugger attach", async function () {
+  var state = harness({
+    tab: { id: 42, discarded: true, status: "unloaded" },
+  });
+
+  var result = await state.screenshot();
+
+  assert.match(result.error, /discarded/);
+  assert.strictEqual(state.calls.attach.length, 0);
+  assert.strictEqual(state.calls.sendCommand.length, 0);
+  assert.strictEqual(state.calls.detach.length, 0);
+  assert.strictEqual(state.updatedListenerCount(), 0);
 });
 
 test("extension reconnect rebroadcasts browser and MCP state", function () {
