@@ -42,8 +42,15 @@ function connectPort() {
 
   connectedPort.onDisconnect.addListener(function () {
     if (stopped || port !== connectedPort) return;
-    var err = chrome.runtime.lastError;
-    console.log("[clay-ext] port disconnected", err ? err.message : "");
+    var reason = "port_disconnected";
+    try {
+      var err = chrome.runtime.lastError;
+      if (err && err.message) reason = String(err.message).slice(0, 160);
+      if (!chrome.runtime.id) reason = "Extension context invalidated.";
+    } catch (e) {
+      reason = "Extension context invalidated.";
+    }
+    console.log("[clay-ext] port disconnected", reason);
     port = null;
     // Notify Clay page that extension disconnected
     window.postMessage(
@@ -51,7 +58,7 @@ function connectPort() {
         source: "clay-chrome-extension",
         payload: {
           type: "clay_ext_disconnected",
-          reason: err && err.message ? String(err.message).slice(0, 160) : "port_disconnected",
+          reason: reason,
         },
       },
       "*"
