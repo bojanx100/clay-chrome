@@ -146,6 +146,7 @@ docked Clay panel.
 | Command | Args | Returns | Description |
 |---------|------|---------|-------------|
 | `tab_screenshot` | `tabId`, `selector?` | `{ image }` | Capture viewport or element as base64 PNG |
+| `tab_click` | `tabId`, `selector` | `{ success, x, y }` or `{ error }` | Dispatch a trusted pointer click at an element |
 
 When `selector` is provided, the element's bounding rect is computed via `Runtime.evaluate` and passed as a `clip` parameter to `Page.captureScreenshot`.
 

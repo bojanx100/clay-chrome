@@ -41,7 +41,10 @@ function connectPort() {
     window.postMessage(
       {
         source: "clay-chrome-extension",
-        payload: { type: "clay_ext_disconnected" },
+        payload: {
+          type: "clay_ext_disconnected",
+          reason: err && err.message ? String(err.message).slice(0, 160) : "port_disconnected",
+        },
       },
       "*"
     );

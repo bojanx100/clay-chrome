@@ -4,7 +4,7 @@ var fs = require("node:fs");
 var path = require("node:path");
 var vm = require("node:vm");
 
-function loadEvaluateScript(chromeApi) {
+function loadDebuggerCommands(chromeApi) {
   var source = fs.readFileSync(
     path.join(__dirname, "..", "background.js"), "utf8");
   var start = source.indexOf("function withDebugger");
@@ -13,7 +13,22 @@ function loadEvaluateScript(chromeApi) {
   assert.notStrictEqual(end, -1, "MCP section marker must exist");
   var context = { chrome: chromeApi };
   vm.runInNewContext(source.substring(start, end), context);
-  return context.evaluateScript;
+  return context;
+}
+
+function loadReconnectCommand(spies) {
+  var source = fs.readFileSync(
+    path.join(__dirname, "..", "background.js"), "utf8");
+  var start = source.indexOf("function reconnectExtension");
+  var end = source.indexOf("\n}\n", start);
+  assert.notStrictEqual(start, -1, "reconnect command must exist");
+  assert.notStrictEqual(end, -1, "reconnect command must be bounded");
+  var context = {
+    broadcastTabList: function () { spies.tabList++; },
+    broadcastMcpServers: function () { spies.mcpServers++; },
+  };
+  vm.runInNewContext(source.substring(start, end + 3), context);
+  return context.reconnectExtension;
 }
 
 function harness(options) {
@@ -39,7 +54,10 @@ function harness(options) {
         chromeApi.runtime.lastError = options.commandError
           ? { message: options.commandError }
           : null;
-        callback(options.response);
+        var response = typeof options.commandResponse === "function"
+          ? options.commandResponse(method, params, calls.sendCommand.length - 1)
+          : options.response;
+        callback(response);
         chromeApi.runtime.lastError = null;
       },
       detach: function (target, callback) {
@@ -48,12 +66,17 @@ function harness(options) {
       },
     },
   };
-  var evaluateScript = loadEvaluateScript(chromeApi);
+  var commands = loadDebuggerCommands(chromeApi);
   return {
     calls: calls,
     evaluate: function (script) {
       return new Promise(function (resolve) {
-        evaluateScript({ tabId: 42, script: script }, resolve);
+        commands.evaluateScript({ tabId: 42, script: script }, resolve);
+      });
+    },
+    click: function (selector) {
+      return new Promise(function (resolve) {
+        commands.clickElement({ tabId: 42, selector: selector }, resolve);
       });
     },
   };
@@ -74,6 +97,7 @@ test("tab_evaluate uses CSP-safe debugger evaluation and returns a value", async
     state.calls.sendCommand[0].params.expression,
     "document.querySelectorAll('button').length");
   assert.strictEqual(state.calls.sendCommand[0].params.returnByValue, true);
+  assert.strictEqual(state.calls.sendCommand[0].params.awaitPromise, true);
   assert.strictEqual(
     state.calls.sendCommand[0].params.allowUnsafeEvalBlockedByCSP,
     false);
@@ -140,4 +164,43 @@ test("tab_evaluate returns restricted-page attach errors without evaluating", as
   assert.strictEqual(result.error, "Cannot access a chrome:// URL");
   assert.strictEqual(state.calls.sendCommand.length, 0);
   assert.strictEqual(state.calls.detach.length, 0);
+});
+
+test("tab_click dispatches trusted pointer input at the element center", async function () {
+  var state = harness({
+    commandResponse: function (method) {
+      if (method === "Runtime.evaluate") {
+        return { result: { value: { x: 10, y: 20, width: 100, height: 40 } } };
+      }
+      return {};
+    },
+  });
+  var result = await state.click("#save");
+
+  assert.strictEqual(result.success, true);
+  assert.deepStrictEqual(state.calls.sendCommand.map(function (call) {
+    return call.method;
+  }), [
+    "Runtime.evaluate",
+    "Input.dispatchMouseEvent",
+    "Input.dispatchMouseEvent",
+    "Input.dispatchMouseEvent",
+  ]);
+  assert.strictEqual(state.calls.sendCommand[1].params.type, "mouseMoved");
+  assert.strictEqual(state.calls.sendCommand[1].params.x, 60);
+  assert.strictEqual(state.calls.sendCommand[1].params.y, 40);
+  assert.strictEqual(state.calls.sendCommand[2].params.type, "mousePressed");
+  assert.strictEqual(state.calls.sendCommand[3].params.type, "mouseReleased");
+  assert.strictEqual(state.calls.detach.length, 1);
+});
+
+test("extension reconnect rebroadcasts browser and MCP state", function () {
+  var spies = { tabList: 0, mcpServers: 0 };
+  var reconnectExtension = loadReconnectCommand(spies);
+  var result = null;
+  reconnectExtension({}, function (value) { result = value; });
+
+  assert.strictEqual(spies.tabList, 1);
+  assert.strictEqual(spies.mcpServers, 1);
+  assert.strictEqual(result.connected, true);
 });

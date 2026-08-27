@@ -124,6 +124,12 @@ function ensureInjected(tabId, callback) {
 
 // --- Commands ---
 
+function reconnectExtension(args, callback) {
+  broadcastTabList();
+  broadcastMcpServers();
+  callback({ success: true, connected: true });
+}
+
 var COMMANDS = {
   // Tab management
   tab_open: openTab,
@@ -141,9 +147,11 @@ var COMMANDS = {
 
   // Debugging (requires chrome.debugger attach)
   tab_evaluate: evaluateScript,
+  tab_click: clickElement,
   tab_screenshot: takeScreenshot,
   tab_navigate: navigateTo,
   tab_wait_navigation: waitForNavigation,
+  extension_reconnect: reconnectExtension,
   live_ui_pair: function (args, callback, source) {
     liveUiRuntime.pair(args, callback, source);
   },
@@ -494,6 +502,7 @@ function evaluateScript(args, callback) {
       {
         expression: args.script,
         returnByValue: true,
+        awaitPromise: true,
         silent: true,
         // Preserve the page's CSP for eval(), Function(), and string timers used
         // by the evaluated expression. Runtime.evaluate itself does not need it.
@@ -522,6 +531,70 @@ function evaluateScript(args, callback) {
           return callback({ error: "No result from script evaluation" });
         }
         callback({ value: result.result.value });
+      }
+    );
+  });
+}
+
+function clickElement(args, callback) {
+  withDebugger(args.tabId, function (tabId, err) {
+    if (err) return callback({ error: err });
+    var selector = String(args.selector || "");
+    var expression = "(function() {" +
+      "var el = document.querySelector(" + JSON.stringify(selector) + ");" +
+      "if (!el) return null;" +
+      "el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });" +
+      "var r = el.getBoundingClientRect();" +
+      "if (r.width <= 0 || r.height <= 0) return null;" +
+      "return { x: r.x, y: r.y, width: r.width, height: r.height };" +
+      "})()";
+    chrome.debugger.sendCommand(
+      { tabId: tabId },
+      "Runtime.evaluate",
+      { expression: expression, returnByValue: true },
+      function (result) {
+        var runtimeError = chrome.runtime.lastError &&
+          chrome.runtime.lastError.message;
+        var rect = result && result.result && result.result.value;
+        if (runtimeError || !rect) {
+          detachDebugger(tabId);
+          callback({
+            error: runtimeError || "Element not found or not visible: " + selector,
+          });
+          return;
+        }
+        var x = rect.x + rect.width / 2;
+        var y = rect.y + rect.height / 2;
+        var events = [
+          { type: "mouseMoved", x: x, y: y },
+          { type: "mousePressed", x: x, y: y, button: "left", clickCount: 1 },
+          { type: "mouseReleased", x: x, y: y, button: "left", clickCount: 1 },
+        ];
+        var eventIndex = 0;
+        function dispatchNext() {
+          if (eventIndex >= events.length) {
+            detachDebugger(tabId);
+            callback({ success: true, x: x, y: y });
+            return;
+          }
+          var event = events[eventIndex++];
+          chrome.debugger.sendCommand(
+            { tabId: tabId },
+            "Input.dispatchMouseEvent",
+            event,
+            function () {
+              var inputError = chrome.runtime.lastError &&
+                chrome.runtime.lastError.message;
+              if (inputError) {
+                detachDebugger(tabId);
+                callback({ error: inputError });
+                return;
+              }
+              dispatchNext();
+            }
+          );
+        }
+        dispatchNext();
       }
     );
   });
