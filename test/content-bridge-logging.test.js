@@ -19,6 +19,7 @@ test("content bridge forwards the extension port disconnect reason", function ()
     runtime: {
       id: "extension-id",
       lastError: null,
+      getManifest: function () { return { manifest_version: 3 }; },
       connect: function () { return port; },
     },
   };
@@ -45,7 +46,7 @@ test("content bridge forwards the extension port disconnect reason", function ()
   assert.strictEqual(event.payload.reason, "Extension context invalidated");
 });
 
-test("content bridge detects an invalidated runtime without a supplied error", function () {
+test("content bridge detects an unusable runtime without a supplied reason", function () {
   var source = fs.readFileSync(path.join(__dirname, "..", "content.js"), "utf8");
   var posted = [];
   var disconnectListener = null;
@@ -60,6 +61,7 @@ test("content bridge detects an invalidated runtime without a supplied error", f
     runtime: {
       id: "extension-id",
       lastError: null,
+      getManifest: function () { throw new Error("runtime unavailable"); },
       connect: function () { return port; },
     },
   };
@@ -76,7 +78,6 @@ test("content bridge detects an invalidated runtime without a supplied error", f
     clearTimeout: function () {},
   });
 
-  delete chromeApi.runtime.id;
   disconnectListener();
 
   var event = posted.find(function (message) {

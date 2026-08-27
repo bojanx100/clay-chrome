@@ -46,6 +46,7 @@ function connectPort() {
     try {
       var err = chrome.runtime.lastError;
       if (err && err.message) reason = String(err.message).slice(0, 160);
+      chrome.runtime.getManifest();
       if (!chrome.runtime.id) reason = "Extension context invalidated.";
     } catch (e) {
       reason = "Extension context invalidated.";
