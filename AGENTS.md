@@ -31,16 +31,65 @@ origin    https://github.com/bojanx100/clay-chrome.git   (your fork)
 upstream  https://github.com/chadbyte/clay-chrome.git    (source repo)
 ```
 
-Syncing upstream:
+Keeping the mirror current:
 
 ```sh
 git fetch upstream
 git checkout main && git merge --ff-only upstream/main && git push origin main
-git checkout bojan && git rebase main        # replay local work on top
 ```
 
 If a fast-forward on `main` is ever refused, something has been committed to
 `main` by mistake — stop and ask rather than force-pushing over it.
+
+### Adopting upstream changes — cherry-pick, do NOT rebase
+
+`bojan` has superseded upstream. Adoption is **selective**: take the upstream
+commits that make sense, ignore the rest.
+
+```sh
+git fetch upstream -q
+git log --oneline main..upstream/main     # what's new; empty = nothing to do
+git show <sha>                            # read it before taking it
+git checkout bojan && git cherry-pick <sha>
+```
+
+**Do not `git rebase bojan` onto `main`.** Rebasing takes every upstream commit
+by construction — it cannot be selective, and it rewrites all 39+ local commits.
+Cherry-pick is the permanent strategy here; mixing the two produces
+duplicate-commit conflicts later. If a cherry-pick conflicts, resolve in favor
+of the local implementation unless the upstream change is specifically the
+thing being adopted.
+
+Conflict surface is small. Only five files exist in both trees:
+
+| File | Local divergence |
+| --- | --- |
+| `background.js` | heavy (~364 lines) |
+| `inject.js` | ~105 lines |
+| `content.js` | ~67 lines |
+| `popup.html` | ~38 lines |
+| `manifest.json` | ~3 lines |
+
+Everything else (`devtools-*`, `live-ui-*`, all of `test/`) is local-only and
+can never conflict with upstream.
+
+### Known intentional divergences from upstream
+
+Do not "restore" these — they are deliberate, and re-adopting the upstream
+version would break Live UI:
+
+- **`broadcastTabList` tab filter.** Upstream excludes Clay's own tabs via
+  `isClayTab` / `isClayUrl` / `CLAY_URL_PATTERNS`. `bojan` replaced this with an
+  `/^https?:\/\//i` filter in `a8034a5` (feat: add Live UI browser overlay),
+  because Live UI must see and reuse the Clay tab. Side effect: `chrome://`,
+  `file://`, and `about:` tabs are no longer listed — intended, since the
+  extension cannot script or capture them anyway.
+
+### Upstream status
+
+As of 2026-08-29 upstream is dormant: last push 2026-04-18, single `main`
+branch, and **zero commits that `bojan` does not already contain**. Verify
+before assuming there is anything to adopt.
 
 ## 2. Commit identity
 
