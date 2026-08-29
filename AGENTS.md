@@ -78,12 +78,21 @@ can never conflict with upstream.
 Do not "restore" these — they are deliberate, and re-adopting the upstream
 version would break Live UI:
 
-- **`broadcastTabList` tab filter.** Upstream excludes Clay's own tabs via
-  `isClayTab` / `isClayUrl` / `CLAY_URL_PATTERNS`. `bojan` replaced this with an
-  `/^https?:\/\//i` filter in `a8034a5` (feat: add Live UI browser overlay),
-  because Live UI must see and reuse the Clay tab. Side effect: `chrome://`,
-  `file://`, and `about:` tabs are no longer listed — intended, since the
-  extension cannot script or capture them anyway.
+- **`broadcastTabList` tab filter.** Upstream excludes *every* Clay tab
+  globally via `isClayTab` / `isClayUrl` / `CLAY_URL_PATTERNS`. `bojan` replaced
+  that with an `/^https?:\/\//i` scheme filter in `a8034a5` (feat: add Live UI
+  browser overlay), because Live UI must be able to see and reuse an existing
+  Clay tab.
+
+  Self-exclusion was not dropped, it was made **per-port**: each port is sent
+  `allTabs.filter(tab.id !== ownTabId)`, so a Clay tab still never sees itself,
+  but it does see other Clay tabs. Side effect of the scheme filter:
+  `chrome://`, `file://`, and `about:` tabs are no longer listed — intended,
+  since the extension cannot script or capture them anyway.
+
+  Locked down by `test/tab-list-broadcast.test.js`. Both behaviors are
+  mutation-checked: reverting to a global Clay exclusion fails 3 tests, and
+  removing the per-port self-exclusion fails 1.
 
 ### Upstream status
 
