@@ -165,6 +165,31 @@
           " element=" + Math.round(wanted.left) + "," + Math.round(wanted.top) :
           "no outline");
 
+      // --- same-route duplicate -------------------------------------------
+      // This is the safe-cache case: the old element is still connected, but a
+      // same-route DOM change creates an earlier structural match with the
+      // same tag and text. Re-resolving from selectors would move the outline.
+      app.insertAdjacentHTML("afterbegin", '<main><section class="card">' +
+        '<div class="row"><label>Duplicate settings area</label>' +
+        '<input name="duplicate" value="copy"></div>' +
+        '<div class="row"><span>Render dimension low</span>' +
+        '<select><option>Low (160 x 90)</option></select></div>' +
+        '</section></main>');
+      var duplicate = structural ? document.querySelector(structural) : null;
+      check("BUG REPRO: a same-route duplicate can match the same structural " +
+        "selector and text",
+        duplicate && duplicate !== target && duplicate.textContent === target.textContent,
+        structural + " -> " + (duplicate ? duplicate.textContent : "null"));
+      reports.refreshHighlights();
+      wanted = target.getBoundingClientRect();
+      got = drawn.length ? drawn[0].getBoundingClientRect() : null;
+      check("FIXED: a connected cached element stays on the original target",
+        got && Math.abs(got.left - wanted.left) <= 12 &&
+          Math.abs(got.top - wanted.top) <= 12,
+        got ? "outline=" + Math.round(got.left) + "," + Math.round(got.top) +
+          " element=" + Math.round(wanted.left) + "," + Math.round(wanted.top) :
+          "no outline");
+
       // --- show-all flag ----------------------------------------------------
       reports.setShowAllWorkers(true);
       check("the show-all flag reveals every open worker",

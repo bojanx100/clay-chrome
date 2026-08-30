@@ -141,6 +141,13 @@ version would break Live UI:
   prevent. Worker outlines already handle this via `outline.hidden` in
   `positionHighlight`.
 
+  Worker outlines also cache the last resolved DOM node per report while that
+  node remains `isConnected`, and clear that private cache on route changes,
+  locator changes, report removal, or full clear. Do not replace this with
+  unconditional per-refresh selector resolution: same-URL DOM churn can create
+  an earlier matching structural selector with the same tag and text, moving the
+  outline even though the originally picked node is still alive.
+
   Separately, `refreshHighlights` (`live-ui-target-reports.js`) only draws the
   **focused** worker unless the `showAllWorkers` flag is on. Do not restore the
   old "every active report is always outlined" behavior.
@@ -185,7 +192,7 @@ No `package.json`, no test framework dependency. Tests use the built-in Node
 test runner (`node:test` + `node:assert`) and CommonJS `require`.
 
 ```sh
-node --test test/*.test.js      # 130 tests
+node --test test/*.test.js      # 134 tests
 ```
 
 Use the **glob** form. `node --test test/` misbehaves on Node 26 and reports a

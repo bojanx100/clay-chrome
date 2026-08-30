@@ -15,6 +15,8 @@ It exists because the unit suite fakes `document`, `location` and
 - that selector really does match a **different** element on another screen —
   the original reported bug, reproduced rather than assumed;
 - the route gate really does suppress it after a real `history.pushState`;
+- a connected cached node stays highlighted when same-route DOM churn creates
+  an earlier matching structural selector with the same text;
 - the outline is really positioned over the picked element (real layout).
 
 ## Why the shared-`#saveButton` case exists

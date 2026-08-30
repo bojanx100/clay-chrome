@@ -67,11 +67,22 @@ function fakeNode() {
   return node;
 }
 
-function manager(reports) {
+function rectElement(left) {
+  return {
+    isConnected: true,
+    getBoundingClientRect: function () {
+      return { left: left, top: 10, width: 80, height: 20,
+        right: left + 80, bottom: 30 };
+    },
+  };
+}
+
+function manager(reports, resolveElement, locationValue) {
   var context = {
     globalThis: {},
     CSS: { escape: function (value) { return String(value); } },
     document: { createElement: function () { return fakeNode(); } },
+    location: locationValue || { pathname: "/settings", hash: "" },
     innerWidth: 1200,
     innerHeight: 800,
     setTimeout: function () { return 1; },
@@ -82,8 +93,9 @@ function manager(reports) {
   var layer = fakeNode();
   var value = context.globalThis.ClayLiveUiTargetReports.create({
     highlightLayer: layer,
-    resolveElement: function () {
+    resolveElement: resolveElement || function () {
       return {
+        isConnected: true,
         getBoundingClientRect: function () {
           return { left: 10, top: 10, width: 80, height: 20 };
         },
@@ -188,4 +200,78 @@ test("the show-all flag is reported to the panel", function () {
   assert.strictEqual(harness.reports.snapshot().showAllWorkers, false);
   harness.reports.setShowAllWorkers(true);
   assert.strictEqual(harness.reports.snapshot().showAllWorkers, true);
+});
+
+test("a connected worker element is reused across refreshes", function () {
+  var first = rectElement(10);
+  var second = rectElement(200);
+  var current = first;
+  var calls = 0;
+  var harness = manager([working("worker-1")], function () {
+    calls++;
+    return current;
+  });
+  harness.reports.focus("worker-1");
+  var outline = harness.layer.querySelector('[data-report-id="worker-1"]');
+  assert.strictEqual(calls, 1);
+  assert.match(outline.style.transform, /translate\(10px,10px\)/);
+  current = second;
+  harness.reports.refreshHighlights();
+  assert.strictEqual(calls, 1);
+  assert.match(outline.style.transform, /translate\(10px,10px\)/);
+});
+
+test("a disconnected worker element is resolved again", function () {
+  var first = rectElement(10);
+  var second = rectElement(200);
+  var current = first;
+  var calls = 0;
+  var harness = manager([working("worker-1")], function () {
+    calls++;
+    return current;
+  });
+  harness.reports.focus("worker-1");
+  first.isConnected = false;
+  current = second;
+  harness.reports.refreshHighlights();
+  var outline = harness.layer.querySelector('[data-report-id="worker-1"]');
+  assert.strictEqual(calls, 2);
+  assert.match(outline.style.transform, /translate\(200px,10px\)/);
+});
+
+test("changing a worker locator clears its cached element", function () {
+  var first = rectElement(10);
+  var second = rectElement(200);
+  var selectors = [];
+  var report = working("worker-1");
+  report.locator = { route: "/settings", tag: "span", text: "A", selectors: ["#a"] };
+  var harness = manager([report], function (locator) {
+    selectors.push(locator.selectors[0]);
+    return locator.selectors[0] === "#a" ? first : second;
+  });
+  harness.reports.focus("worker-1");
+  harness.reports.upsert({
+    reportId: "worker-1",
+    locator: { route: "/settings", tag: "span", text: "B", selectors: ["#b"] },
+  });
+  var outline = harness.layer.querySelector('[data-report-id="worker-1"]');
+  assert.deepStrictEqual(selectors, ["#a", "#b"]);
+  assert.match(outline.style.transform, /translate\(200px,10px\)/);
+});
+
+test("changing routes invalidates cached worker elements", function () {
+  var route = { pathname: "/settings", hash: "" };
+  var first = rectElement(10);
+  var calls = 0;
+  var harness = manager([working("worker-1")], function () {
+    calls++;
+    return route.pathname === "/settings" ? first : null;
+  }, route);
+  harness.reports.focus("worker-1");
+  var outline = harness.layer.querySelector('[data-report-id="worker-1"]');
+  assert.strictEqual(outline.hidden, false);
+  route.pathname = "/hearing-room";
+  harness.reports.refreshHighlights();
+  assert.strictEqual(calls, 2);
+  assert.strictEqual(outline.hidden, true);
 });

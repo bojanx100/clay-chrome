@@ -35,6 +35,9 @@
     var hmrClearTimer = null;
     var showAllWorkers = false;
     var hmr = { status: "", message: "" };
+    var elementCache = {};
+    var locatorSignatures = {};
+    var cacheRoute = currentRoute();
 
     function reportValues() {
       return Object.keys(reports).map(function (id) { return reports[id]; });
@@ -44,8 +47,60 @@
       return reportId && reports[reportId] ? reports[reportId] : null;
     }
 
+    function locatorSignature(locator) {
+      var selectors = locator && Array.isArray(locator.selectors) ?
+        locator.selectors.join("\n") : "";
+      return [
+        locator && locator.route || "",
+        locator && locator.tag || "",
+        locator && locator.text || "",
+        selectors,
+      ].join("\n--\n");
+    }
+
+    function currentRoute() {
+      if (typeof location === "undefined") return "";
+      return String(location.pathname || "").replace(/\/+$/, "") + "\n" +
+        String(location.hash || "");
+    }
+
+    function invalidateRouteCache() {
+      var route = currentRoute();
+      if (route === cacheRoute) return;
+      elementCache = {};
+      cacheRoute = route;
+    }
+
+    function syncCache(report) {
+      if (!report || !report.reportId) return;
+      var signature = locatorSignature(report.locator);
+      if (locatorSignatures[report.reportId] !== undefined &&
+          locatorSignatures[report.reportId] !== signature) {
+        delete elementCache[report.reportId];
+      }
+      locatorSignatures[report.reportId] = signature;
+    }
+
+    function pruneCache(keep) {
+      var ids = Object.keys(elementCache);
+      for (var i = 0; i < ids.length; i++) {
+        if (!keep[ids[i]]) delete elementCache[ids[i]];
+      }
+      ids = Object.keys(locatorSignatures);
+      for (var j = 0; j < ids.length; j++) {
+        if (!keep[ids[j]]) delete locatorSignatures[ids[j]];
+      }
+    }
+
     function resolveReport(report) {
-      return options.resolveElement(report && report.locator);
+      invalidateRouteCache();
+      var reportId = report && report.reportId;
+      var cached = reportId ? elementCache[reportId] : null;
+      if (cached && cached.isConnected) return cached;
+      if (reportId) delete elementCache[reportId];
+      var element = options.resolveElement(report && report.locator);
+      if (reportId && element) elementCache[reportId] = element;
+      return element;
     }
 
     function highlightFor(report) {
@@ -140,16 +195,23 @@
     function upsert(report) {
       if (!report || !report.reportId) return;
       reports[report.reportId] = Object.assign({}, reports[report.reportId] || {}, report);
+      syncCache(reports[report.reportId]);
       refreshHighlights();
     }
 
     function replace(nextReports) {
       var hadFocused = !!focusedId;
       reports = {};
+      var keep = {};
       var values = Array.isArray(nextReports) ? nextReports : [];
       for (var i = 0; i < values.length; i++) {
-        if (values[i] && values[i].reportId) reports[values[i].reportId] = values[i];
+        if (values[i] && values[i].reportId) {
+          reports[values[i].reportId] = values[i];
+          keep[values[i].reportId] = true;
+          syncCache(values[i]);
+        }
       }
+      pruneCache(keep);
       if (focusedId && !reports[focusedId]) focusedId = null;
       refreshHighlights();
       if (hadFocused && !focusedId && options.onFocus) options.onFocus(null);
@@ -158,6 +220,8 @@
     function remove(reportId) {
       var wasFocused = focusedId === reportId;
       delete reports[reportId];
+      delete elementCache[reportId];
+      delete locatorSignatures[reportId];
       if (wasFocused) focusedId = null;
       refreshHighlights();
       if (wasFocused && options.onFocus) options.onFocus(null);
@@ -243,6 +307,8 @@
       focusedId = null;
       hmr = { status: "", message: "" };
       if (hmrClearTimer) clearTimeout(hmrClearTimer);
+      elementCache = {};
+      locatorSignatures = {};
       options.highlightLayer.innerHTML = "";
     }
 
