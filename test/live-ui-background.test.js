@@ -84,6 +84,8 @@ test("target canvas exposes only React selection and worker highlights", functio
   var target = fs.readFileSync(path.join(root, "live-ui-target.js"), "utf8");
   var targetContext = fs.readFileSync(
     path.join(root, "live-ui-target-context.js"), "utf8");
+  var targetSelection = fs.readFileSync(
+    path.join(root, "live-ui-target-selection.js"), "utf8");
   var targetUi = fs.readFileSync(path.join(root, "live-ui-target-ui.js"), "utf8");
   var targetReports = fs.readFileSync(
     path.join(root, "live-ui-target-reports.js"), "utf8");
@@ -108,18 +110,15 @@ test("target canvas exposes only React selection and worker highlights", functio
   assert.match(target, /attachments: attachments/);
   assert.match(target, /live_ui_devtools_command/);
   assert.match(background, /live-ui-target-snapshot\.js/);
+  assert.match(background, /live-ui-target-selection\.js/);
+  assert.ok(background.indexOf("live-ui-target-selection.js") <
+    background.indexOf("live-ui-target.js"));
   assert.match(target, /evidence\.capture/);
   assert.match(target, /component\.inspect/);
   assert.match(target, /handleShieldClick/);
-  // An unresolvable packet must hide the selection outline. positionSelection
-  // is what sets display:block and only clearSelection ever unset it, so
-  // without these two the green outline strands at the coordinates it held on
-  // the previous screen. Shape check only -- live-ui-target.js is an IIFE that
-  // needs the chrome runtime, so it has no behavioural harness.
-  assert.match(target,
-    /if \(!restoreSelection\(state\.selectedPacket, true\)\) positionSelection\(null/);
-  assert.match(target,
-    /if \(!element\) \{ state\.selectionOutline\.style\.display = "none"; return; \}/);
+  assert.match(target, /ClayLiveUiTargetSelection/);
+  assert.match(targetSelection, /positionSelection/);
+  assert.match(targetSelection, /refreshSelection/);
   assert.match(targetUi, /stopImmediatePropagation/);
   assert.match(background, /captureEvidence/);
   assert.match(evidence, /captureDiagnostics/);
@@ -128,6 +127,7 @@ test("target canvas exposes only React selection and worker highlights", functio
   assert.match(inject, /Fast Refresh/);
   assert.ok(target.split("\n").length < 500);
   assert.ok(targetContext.split("\n").length < 500);
+  assert.ok(targetSelection.split("\n").length < 500);
   assert.ok(targetReports.split("\n").length < 500);
   assert.ok(targetSnapshot.split("\n").length < 500);
   assert.ok(targetUi.split("\n").length < 500);

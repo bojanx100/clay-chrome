@@ -135,7 +135,7 @@ version would break Live UI:
   Because the resolver fails closed, **every caller must handle failure by
   hiding**, not by doing nothing. `positionSelection` is what sets the green
   selection outline to `display:block` and only `clearSelection` ever unset it,
-  so `scheduleRefresh` calls `positionSelection(null, true)` when
+  so `refreshSelection` (`live-ui-target-selection.js`) hides the outline when
   `restoreSelection` fails. Without that the outline strands at the coordinates
   it held on the previous screen — the same symptom the route gate exists to
   prevent. Worker outlines already handle this via `outline.hidden` in
@@ -192,7 +192,7 @@ No `package.json`, no test framework dependency. Tests use the built-in Node
 test runner (`node:test` + `node:assert`) and CommonJS `require`.
 
 ```sh
-node --test test/*.test.js      # 134 tests
+node --test test/*.test.js      # 135 tests
 ```
 
 Use the **glob** form. `node --test test/` misbehaves on Node 26 and reports a

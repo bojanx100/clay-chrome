@@ -3,6 +3,7 @@
   globalThis.__clayLiveUiTargetInstalled = true;
 
   var context = globalThis.ClayLiveUiTargetContext;
+  var selection = globalThis.ClayLiveUiTargetSelection;
   var state = {
     pairingId: null,
     host: null,
@@ -47,29 +48,17 @@
   }
 
   function positionSelection(element, selected) {
-    if (!state.selectionOutline) return;
-    if (!element) { state.selectionOutline.style.display = "none"; return; }
-    var rect = element.getBoundingClientRect();
-    state.selectionOutline.style.display = "block";
-    state.selectionOutline.style.transform =
-      "translate(" + rect.left + "px," + rect.top + "px)";
-    state.selectionOutline.style.width = rect.width + "px";
-    state.selectionOutline.style.height = rect.height + "px";
-    state.selectionOutline.style.borderColor = selected ? "#8fe388" : "#55a7ff";
+    selection.positionSelection(state, element, selected);
   }
 
   function componentTitle(packet) {
-    if (packet && packet.component && packet.component.name) return packet.component.name;
-    return String(packet && (packet.accessibleName || packet.text || packet.tag) ||
-      "Selected element").replace(/\s+/g, " ").trim().slice(0, 160);
+    return selection.componentTitle(packet);
   }
 
   function clearSelection(notify) {
-    state.selected = null;
-    state.selectedPacket = null;
-    state.hovered = null;
-    if (state.selectionOutline) state.selectionOutline.style.display = "none";
-    if (notify) sendEvent("selection.clear", null, nextMessageId("selection"));
+    selection.clearSelection(state, notify, function () {
+      sendEvent("selection.clear", null, nextMessageId("selection"));
+    });
   }
 
   function stopSelecting() {
@@ -135,30 +124,18 @@
   }
 
   function restoreSelection(packet, notify) {
-    var element = context.resolveElement(packet);
-    if (!element) return false;
-    state.selected = element;
-    state.selectedPacket = Object.assign(
-      context.selectionPacket(element, state.documentGeneration), {
-        component: packet.component || null,
-      });
-    positionSelection(element, true);
-    if (notify) sendEvent("selection.update", state.selectedPacket,
-      nextMessageId("selection"));
-    return true;
+    return selection.restoreSelection(state, context, packet, notify, function (updated) {
+      sendEvent("selection.update", updated, nextMessageId("selection"));
+    });
   }
 
   function scheduleRefresh() {
     if (state.refreshFrame) return;
     state.refreshFrame = requestAnimationFrame(function () {
       state.refreshFrame = null;
-      if (state.selectedPacket && (!state.selected || !state.selected.isConnected)) {
-        // Fail closed: an unresolvable packet must hide the outline, never
-        // leave it stranded at the coordinates it had on the previous screen.
-        if (!restoreSelection(state.selectedPacket, true)) positionSelection(null, true);
-      } else if (state.selected) {
-        positionSelection(state.selected, true);
-      }
+      selection.refreshSelection(state, context, function (updated) {
+        sendEvent("selection.update", updated, nextMessageId("selection"));
+      });
       if (state.reportManager) state.reportManager.refreshHighlights();
     });
   }
