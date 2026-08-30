@@ -47,7 +47,8 @@
   }
 
   function positionSelection(element, selected) {
-    if (!state.selectionOutline || !element) return;
+    if (!state.selectionOutline) return;
+    if (!element) { state.selectionOutline.style.display = "none"; return; }
     var rect = element.getBoundingClientRect();
     state.selectionOutline.style.display = "block";
     state.selectionOutline.style.transform =
@@ -152,7 +153,9 @@
     state.refreshFrame = requestAnimationFrame(function () {
       state.refreshFrame = null;
       if (state.selectedPacket && (!state.selected || !state.selected.isConnected)) {
-        restoreSelection(state.selectedPacket, true);
+        // Fail closed: an unresolvable packet must hide the outline, never
+        // leave it stranded at the coordinates it had on the previous screen.
+        if (!restoreSelection(state.selectedPacket, true)) positionSelection(null, true);
       } else if (state.selected) {
         positionSelection(state.selected, true);
       }

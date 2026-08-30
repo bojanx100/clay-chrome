@@ -132,6 +132,15 @@ version would break Live UI:
   and only the route gate suppresses it. The browser fixture's
   shared-`#saveButton` case is the only check that isolates the route gate.
 
+  Because the resolver fails closed, **every caller must handle failure by
+  hiding**, not by doing nothing. `positionSelection` is what sets the green
+  selection outline to `display:block` and only `clearSelection` ever unset it,
+  so `scheduleRefresh` calls `positionSelection(null, true)` when
+  `restoreSelection` fails. Without that the outline strands at the coordinates
+  it held on the previous screen — the same symptom the route gate exists to
+  prevent. Worker outlines already handle this via `outline.hidden` in
+  `positionHighlight`.
+
   Separately, `refreshHighlights` (`live-ui-target-reports.js`) only draws the
   **focused** worker unless the `showAllWorkers` flag is on. Do not restore the
   old "every active report is always outlined" behavior.

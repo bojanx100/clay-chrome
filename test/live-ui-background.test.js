@@ -111,6 +111,15 @@ test("target canvas exposes only React selection and worker highlights", functio
   assert.match(target, /evidence\.capture/);
   assert.match(target, /component\.inspect/);
   assert.match(target, /handleShieldClick/);
+  // An unresolvable packet must hide the selection outline. positionSelection
+  // is what sets display:block and only clearSelection ever unset it, so
+  // without these two the green outline strands at the coordinates it held on
+  // the previous screen. Shape check only -- live-ui-target.js is an IIFE that
+  // needs the chrome runtime, so it has no behavioural harness.
+  assert.match(target,
+    /if \(!restoreSelection\(state\.selectedPacket, true\)\) positionSelection\(null/);
+  assert.match(target,
+    /if \(!element\) \{ state\.selectionOutline\.style\.display = "none"; return; \}/);
   assert.match(targetUi, /stopImmediatePropagation/);
   assert.match(background, /captureEvidence/);
   assert.match(evidence, /captureDiagnostics/);
