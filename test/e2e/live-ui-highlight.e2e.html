@@ -1,0 +1,211 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Clay Live UI — worker highlight end-to-end</title>
+  <style>
+    body { margin: 0; font: 13px/1.4 ui-sans-serif, -apple-system, sans-serif; }
+    .app { padding: 24px; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; max-width: 640px; }
+    .row { display: flex; gap: 12px; align-items: center; padding: 8px 0; }
+    .row > span, .row > label { width: 240px; color: #333; }
+    #report { padding: 16px 24px; font: 12px/1.6 ui-monospace, Consolas, monospace; }
+    .pass { color: #0a7d32; }
+    .fail { color: #c22; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="app"></div>
+  <pre id="report">running…</pre>
+
+  <script src="../../live-ui-target-context.js"></script>
+  <script src="../../live-ui-target-ui.js"></script>
+  <script src="../../live-ui-target-reports.js"></script>
+  <script>
+  (function () {
+    var SCREENS = {
+      "/settings": '<main><section class="card">' +
+        '<div class="row"><label>Default hearing room message</label>' +
+        '<input name="hearingMessage" value="WAITING FOR THE HEARING TO COMMENCE"></div>' +
+        '<div class="row"><span>Render dimension low</span>' +
+        '<select><option>Low (160 x 90)</option></select></div>' +
+        '<button id="saveButton">Save</button>' +
+        '</section></main>',
+      "/hearing-room": '<main><section class="card">' +
+        '<div class="row"><label>Participant name</label>' +
+        '<input name="participant" value="Counsel"></div>' +
+        '<div class="row"><span>Enable screen share</span>' +
+        '<select><option>Off</option></select></div>' +
+        '<button id="saveButton">Save</button>' +
+        '</section></main>',
+    };
+
+    var app = document.querySelector(".app");
+    var results = [];
+
+    function show(route) {
+      history.pushState({}, "", route);
+      app.innerHTML = SCREENS[route];
+    }
+
+    function check(name, condition, detail) {
+      results.push({ name: name, pass: !!condition, detail: detail || "" });
+    }
+
+    function structuralSelector(packet) {
+      for (var i = 0; i < packet.selectors.length; i++) {
+        if (packet.selectors[i].indexOf(" > ") >= 0) return packet.selectors[i];
+      }
+      return null;
+    }
+
+    function visibleOutlines(layer) {
+      var found = [];
+      var nodes = layer.querySelectorAll(".worker-outline");
+      for (var i = 0; i < nodes.length; i++) {
+        if (!nodes[i].hidden) found.push(nodes[i]);
+      }
+      return found;
+    }
+
+    function run() {
+      var context = globalThis.ClayLiveUiTargetContext;
+      var ui = globalThis.ClayLiveUiTargetUi.create({ documentGeneration: "gen-1" });
+      var layer = ui.highlightLayer;
+
+      show("/settings");
+      var picked = app.querySelector(".row:nth-of-type(2) > span");
+      var packet = context.selectionPacket(picked, "gen-1");
+
+      // --- the picked element is only addressable structurally -------------
+      var structural = structuralSelector(packet);
+      check("picked element has no stable selector, only a structural path",
+        structural && packet.selectors.length === 1,
+        "selectors=" + JSON.stringify(packet.selectors));
+      check("the recorded route is the screen it was picked on",
+        packet.route === "/settings", "route=" + packet.route);
+
+      // --- resolves correctly on its own screen ----------------------------
+      check("resolves to the picked element on its own screen",
+        context.resolveElement(packet) === picked);
+
+      // --- REPRODUCE THE ORIGINAL BUG --------------------------------------
+      show("/hearing-room");
+      var strayed = structural ? document.querySelector(structural) : null;
+      check("BUG REPRO: the recorded selector matches a different element " +
+        "on another screen",
+        strayed && strayed !== picked,
+        structural + " -> " + (strayed ? "<" + strayed.tagName.toLowerCase() +
+          "> " + strayed.textContent : "null"));
+
+      // --- the fix suppresses it -------------------------------------------
+      check("FIXED: the resolver refuses to resolve on another screen",
+        context.resolveElement(packet) === null);
+
+      // --- a shared id is the case only the route gate can catch -----------
+      // Text is deliberately NOT verified for stable selectors (so a worker's
+      // own HMR edit cannot erase its highlight), and a shared component keeps
+      // the same id and text on both screens. Tag/text verification is blind
+      // here; only the route gate suppresses it.
+      show("/settings");
+      var save = document.querySelector("#saveButton");
+      var savePacket = context.selectionPacket(save, "gen-1");
+      check("a shared control is recorded by its stable id",
+        savePacket.selectors[0] === "#saveButton",
+        "selectors=" + JSON.stringify(savePacket.selectors));
+      check("the shared control resolves on its own screen",
+        context.resolveElement(savePacket) === save);
+
+      show("/hearing-room");
+      var otherSave = document.querySelector("#saveButton");
+      check("BUG REPRO: the shared id matches an identical control on the " +
+        "other screen, so tag and text verification are both blind",
+        otherSave && otherSave !== save &&
+          otherSave.tagName === save.tagName &&
+          otherSave.textContent === save.textContent,
+        "tag/text identical on both screens");
+      check("FIXED (route gate only): the shared control does not resolve " +
+        "on the other screen",
+        context.resolveElement(savePacket) === null);
+
+      // --- highlight visibility --------------------------------------------
+      show("/settings");
+      var reports = globalThis.ClayLiveUiTargetReports.create({
+        highlightLayer: layer,
+        resolveElement: context.resolveElement,
+      });
+      var locator = context.selectionPacket(
+        app.querySelector(".row:nth-of-type(2) > span"), "gen-1");
+      reports.replace([
+        { reportId: "worker-1013", status: "working", locator: locator,
+          worker: { label: "Worker 1013", color: "#e06c6c" } },
+        { reportId: "worker-2001", status: "working", locator: locator,
+          worker: { label: "Worker 2001", color: "#55a7ff" } },
+      ]);
+
+      check("no outlines are drawn until a worker is picked",
+        visibleOutlines(layer).length === 0,
+        "visible=" + visibleOutlines(layer).length);
+
+      reports.focus("worker-1013");
+      var drawn = visibleOutlines(layer);
+      check("picking a worker draws exactly its own outline",
+        drawn.length === 1 && drawn[0].dataset.reportId === "worker-1013",
+        "visible=" + drawn.length);
+
+      // --- real geometry ----------------------------------------------------
+      var target = app.querySelector(".row:nth-of-type(2) > span");
+      var wanted = target.getBoundingClientRect();
+      var got = drawn.length ? drawn[0].getBoundingClientRect() : null;
+      check("the outline is positioned over the picked element",
+        got && Math.abs(got.left - wanted.left) <= 12 &&
+          Math.abs(got.top - wanted.top) <= 12 &&
+          got.width > 0 && got.height > 0,
+        got ? "outline=" + Math.round(got.left) + "," + Math.round(got.top) +
+          " element=" + Math.round(wanted.left) + "," + Math.round(wanted.top) :
+          "no outline");
+
+      // --- show-all flag ----------------------------------------------------
+      reports.setShowAllWorkers(true);
+      check("the show-all flag reveals every open worker",
+        visibleOutlines(layer).length === 2,
+        "visible=" + visibleOutlines(layer).length);
+      reports.setShowAllWorkers(false);
+      check("turning the flag off collapses back to the picked worker",
+        visibleOutlines(layer).length === 1,
+        "visible=" + visibleOutlines(layer).length);
+
+      // --- navigating away hides it, coming back restores it ----------------
+      show("/hearing-room");
+      reports.refreshHighlights();
+      check("navigating away hides the picked worker's outline",
+        visibleOutlines(layer).length === 0,
+        "visible=" + visibleOutlines(layer).length);
+
+      show("/settings");
+      reports.refreshHighlights();
+      check("returning to the screen restores the outline",
+        visibleOutlines(layer).length === 1,
+        "visible=" + visibleOutlines(layer).length);
+
+      var failed = results.filter(function (r) { return !r.pass; });
+      globalThis.__clayE2E = { done: true, results: results, failed: failed.length };
+      document.getElementById("report").innerHTML = results.map(function (r) {
+        return '<span class="' + (r.pass ? "pass" : "fail") + '">' +
+          (r.pass ? "PASS" : "FAIL") + "</span>  " + r.name +
+          (r.detail ? "\n        " + r.detail : "");
+      }).join("\n") + "\n\n" + (failed.length ? failed.length + " FAILED" :
+        results.length + " passed");
+    }
+
+    try {
+      run();
+    } catch (error) {
+      globalThis.__clayE2E = { done: true, error: String(error && error.stack || error), failed: 1 };
+      document.getElementById("report").textContent = "ERROR\n" +
+        String(error && error.stack || error);
+    }
+  })();
+  </script>
+</body>
+</html>

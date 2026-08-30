@@ -5,6 +5,7 @@
     "report.focus": true,
     "report.submit": true,
     "report.dismiss": true,
+    "report.showAll": true,
     snapshot: true,
   };
 
@@ -56,6 +57,9 @@
     }
     if (action === "report.focus" || action === "report.dismiss") {
       return { reportId: safeId(input.reportId) };
+    }
+    if (action === "report.showAll") {
+      return { showAll: input.showAll === true };
     }
     return {};
   }

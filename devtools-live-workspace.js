@@ -1,6 +1,30 @@
 (function (root) {
+  var SHOW_ALL_KEY = "liveUiShowAllWorkers";
+
   function element(id) {
     return document.getElementById(id);
+  }
+
+  function storagePreferences() {
+    var area = root.chrome && root.chrome.storage ? root.chrome.storage.local : null;
+    return {
+      load: function (key, callback) {
+        if (!area || !area.get) return callback(null);
+        try {
+          area.get([key], function (data) { callback(data ? data[key] : null); });
+        } catch (error) {
+          callback(null);
+        }
+      },
+      save: function (key, value) {
+        if (!area || !area.set) return;
+        var record = {};
+        record[key] = value;
+        try {
+          area.set(record);
+        } catch (error) {}
+      },
+    };
   }
 
   function safeColor(value) {
@@ -80,8 +104,14 @@
       attachmentList: element("attachmentList"),
       error: element("reportError"),
       report: element("reportButton"),
+      showAllWorkers: element("showAllWorkers"),
     };
     var snapshot = null;
+    var preferences = options.preferences || storagePreferences();
+    var showAllPreference = false;
+    var showAllPending = false;
+    var showAllBlocked = false;
+    var showAllChosen = false;
     var actionError = "";
     var lastAcceptedSequence = null;
     var actionPending = false;
@@ -174,6 +204,25 @@
     function setDraftRoute(pairing) {
       setDraftKey(pairing ? ["live-ui", pairing.targetTabId,
         pairing.projectSlug || "project", pairing.sessionId || "session"].join(":") : null);
+    }
+
+    function syncShowAll() {
+      if (showAllPending || showAllBlocked) return;
+      if (!snapshot || !snapshot.connected) return;
+      if ((snapshot.showAllWorkers === true) === showAllPreference) return;
+      showAllPending = true;
+      run("report.showAll", { showAll: showAllPreference }, function (response) {
+        showAllPending = false;
+        showAllBlocked = !response || response.ok === false;
+      });
+    }
+
+    function setShowAllPreference(value) {
+      showAllPreference = value === true;
+      showAllBlocked = false;
+      refs.showAllWorkers.checked = showAllPreference;
+      if (preferences) preferences.save(SHOW_ALL_KEY, showAllPreference);
+      syncShowAll();
     }
 
     function focusedReport() {
@@ -344,6 +393,20 @@
       renderHmr(snapshot.hmr || {});
       renderReports(snapshot.reports || []);
       renderComposer();
+      syncShowAll();
+    }
+
+    refs.showAllWorkers.addEventListener("change", function () {
+      showAllChosen = true;
+      setShowAllPreference(refs.showAllWorkers.checked === true);
+    });
+    if (preferences) {
+      preferences.load(SHOW_ALL_KEY, function (value) {
+        // A slow storage read must never clobber a choice the user already
+        // made while it was in flight.
+        if (showAllChosen || value !== true) return;
+        setShowAllPreference(true);
+      });
     }
 
     refs.pick.addEventListener("click", function () {
@@ -394,6 +457,8 @@
         snapshot = null;
         actionError = "";
         actionPending = false;
+        showAllPending = false;
+        showAllBlocked = false;
         lastAcceptedSequence = null;
         refs.reportList.innerHTML = "";
       },

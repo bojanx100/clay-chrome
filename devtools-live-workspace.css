@@ -281,6 +281,22 @@
   font: 10px/1 ui-monospace, "SFMono-Regular", Consolas, monospace;
 }
 
+.show-all-workers {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 0 2px 10px;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.show-all-workers input {
+  margin: 0;
+  cursor: pointer;
+}
+
 .report-list {
   display: grid;
   gap: 8px;

@@ -54,7 +54,7 @@ function panelHarness(options) {
     "hmrStatus", "hmrLabel", "reportCount", "reportList", "emptyReports",
     "followupTarget", "followupLabel", "newIssueButton", "reportInput",
     "reportError", "reportButton",
-    "attachmentList",
+    "attachmentList", "showAllWorkers",
   ];
   var elements = {};
   for (var i = 0; i < ids.length; i++) elements[ids[i]] = fakeElement(ids[i]);

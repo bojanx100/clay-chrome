@@ -94,6 +94,61 @@ version would break Live UI:
   mutation-checked: reverting to a global Clay exclusion fails 3 tests, and
   removing the per-port self-exclusion fails 1.
 
+- **Worker highlights are gated twice.** `resolveElement`
+  (`live-ui-target-context.js`) deliberately **fails closed**: it returns `null`
+  when the recorded `locator.route` does not match the current screen, and it
+  verifies a matched element against the recorded `tag` before accepting it.
+
+  Selectors must additionally match the recorded `text`, because the structural
+  fallback (`div > span:nth-of-type(3)`) is relative and unanchored — it matches
+  structurally similar nodes on unrelated screens, which is what made highlights
+  land on random elements after an SPA navigation.
+
+  The text check is skipped **only** for a selector that both matches exactly
+  one element and is recognized by `isStable` (`#id`, `[data-testid="…"]`,
+  `tag[name="…"]`), so a worker's own HMR edit does not erase its highlight.
+  Two rules there are load-bearing:
+
+  - `isStable` enumerates what is **trusted**, never what is suspect. An
+    unrecognized selector shape must fail closed. An earlier version enumerated
+    structural shapes instead and fell open on anything unmatched — e.g. custom
+    element names containing `_` or non-ASCII, which are spec-legal.
+  - A selector matching more than one element is ambiguous no matter how stable
+    it looks. `input[name="x"]` is a radio group by design, so `querySelectorAll`
+    is used and every match is verified rather than blindly taking the first.
+
+  Route comparison goes through `routeKey`, which normalizes a trailing slash,
+  ignores the query string, and includes the fragment **only when it looks like
+  a hash route** (`#/…` or `#!/…`). That is load-bearing too: under hash routing
+  `location.pathname` is always `/`, so comparing pathname alone would silently
+  disable the gate for those apps. The fragment gets the same trailing-slash and
+  query normalization as the path. A plain anchor (`#section`) is still ignored
+  so scrolling to an anchor does not erase highlights.
+
+  The two verification layers overlap, and that is deliberate. Do not delete one
+  because the tests still pass without it — for a *structural* selector the text
+  check alone rejects a stray match, but for a **shared component** (same id,
+  tag and text on both screens, e.g. a Save button) text is not checked at all
+  and only the route gate suppresses it. The browser fixture's
+  shared-`#saveButton` case is the only check that isolates the route gate.
+
+  Separately, `refreshHighlights` (`live-ui-target-reports.js`) only draws the
+  **focused** worker unless the `showAllWorkers` flag is on. Do not restore the
+  old "every active report is always outlined" behavior.
+
+  Locked down by `test/live-ui-target-context.test.js`, the outline tests in
+  `test/live-ui-target-reports.test.js`, and `test/e2e/`. Mutation-checked:
+  dropping the route gate fails 1 unit test and 1 fixture check; dropping the
+  uniqueness check or re-enumerating structural shapes fails 3; ignoring `#!/`
+  fails 1; skipping fragment normalization fails 2; reverting the visibility gate
+  fails 4 unit tests and 4 fixture checks.
+
+  When writing tests here, beware two traps that have already produced vacuous
+  tests in this repo: asserting text-verification behavior through a *stable*
+  selector (which skips the check entirely), and faking an async storage read
+  that samples its value at resolve time rather than at read time (which cannot
+  reproduce a lost-update race). Both passed against deliberately broken code.
+
 ### Upstream status
 
 As of 2026-08-29 upstream is dormant: last push 2026-04-18, single `main`
@@ -121,12 +176,30 @@ No `package.json`, no test framework dependency. Tests use the built-in Node
 test runner (`node:test` + `node:assert`) and CommonJS `require`.
 
 ```sh
-node --test test/*.test.js      # 76 tests
+node --test test/*.test.js      # 130 tests
 ```
 
 Use the **glob** form. `node --test test/` misbehaves on Node 26 and reports a
 single spurious failure. Run the suite before pushing; it is fast (<1s) and has
 no external dependencies or network access.
+
+### Browser end-to-end fixture
+
+`test/e2e/live-ui-highlight.e2e.html` runs the real Live UI target modules in a
+real browser — no jsdom, no npm dependency, no build step. It is the only place
+the unanchored-structural-selector bug is *reproduced* rather than assumed, and
+the only coverage of real layout/`history.pushState` behavior.
+
+```sh
+python3 -m http.server 8731          # from the repo root
+open http://127.0.0.1:8731/test/e2e/live-ui-highlight.e2e.html
+```
+
+It needs `http://` — `history.pushState` throws on `file://`. Results render on
+the page and are exposed as `window.__clayE2E` (`failed === 0` passes). See
+`test/e2e/README.md`, especially the note on why the shared-`#saveButton` case
+is the only check that isolates the route gate. `test/live-ui-e2e-fixture.test.js`
+guards the fixture against silent rot but does **not** execute it.
 
 ## 4. Code conventions
 

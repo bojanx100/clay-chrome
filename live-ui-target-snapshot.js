@@ -19,7 +19,8 @@
 
   function build(state, componentTitle) {
     var reportState = state.reportManager ? state.reportManager.snapshot() : {
-      reports: [], focusedId: null, counts: {}, aggregateStatus: "", hmr: {},
+      reports: [], focusedId: null, counts: {}, aggregateStatus: "",
+      showAllWorkers: false, hmr: {},
     };
     return {
       ok: true,
@@ -36,6 +37,7 @@
       focusedId: reportState.focusedId,
       counts: reportState.counts,
       aggregateStatus: reportState.aggregateStatus,
+      showAllWorkers: reportState.showAllWorkers === true,
       hmr: reportState.hmr,
     };
   }

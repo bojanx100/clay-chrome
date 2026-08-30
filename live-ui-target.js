@@ -345,8 +345,9 @@
       sendResponse(canvasSnapshot());
       return false;
     }
-    if (message.action === "report.focus") {
-      state.reportManager.focus(payload.reportId);
+    if (message.action === "report.focus" || message.action === "report.showAll") {
+      if (message.action === "report.focus") state.reportManager.focus(payload.reportId);
+      else state.reportManager.setShowAllWorkers(payload.showAll);
       sendResponse(canvasSnapshot());
       return false;
     }

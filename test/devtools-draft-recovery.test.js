@@ -46,6 +46,7 @@ function elements() {
     "pickButton", "hmrStatus", "hmrLabel", "reportCount", "reportList",
     "emptyReports", "followupTarget", "followupLabel", "newIssueButton",
     "reportInput", "attachmentList", "reportError", "reportButton",
+    "showAllWorkers",
   ];
   var result = {};
   for (var i = 0; i < ids.length; i++) result[ids[i]] = fakeElement(ids[i]);

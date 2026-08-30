@@ -61,13 +61,65 @@
     };
   }
 
+  function trimPath(value) {
+    return value.length > 1 ? value.replace(/\/+$/, "") : value;
+  }
+
+  function routeFragment(hash) {
+    var value = String(hash || "");
+    if (value.indexOf("#!") === 0) value = "#" + value.slice(2);
+    if (value.indexOf("#/") !== 0) return "";
+    return "#" + trimPath(value.slice(1).split("?")[0]);
+  }
+
+  function routeKey(value, hash) {
+    return trimPath(String(value || "").split(/[?#]/)[0]) + routeFragment(hash);
+  }
+
+  function matchesRoute(locator) {
+    var route = locator && typeof locator.route === "string" ? locator.route : "";
+    if (!route) return true;
+    var hashIndex = route.indexOf("#");
+    return routeKey(route, hashIndex < 0 ? "" : route.slice(hashIndex)) ===
+      routeKey(location.pathname, location.hash);
+  }
+
+  // Only the shapes `selectorCandidates` emits from a stable, author-supplied
+  // attribute are trusted enough to skip text verification. Anything else --
+  // including structural paths and any shape not recognized here -- is strict.
+  // Enumerate what is trusted, never what is suspect: an unrecognized selector
+  // must fail closed.
+  var STABLE_PATTERN = /^(#|\[data-testid=")|^[^\s>\[]+\[name="/;
+
+  function isStable(selector) {
+    return STABLE_PATTERN.test(String(selector || ""));
+  }
+
+  function matchesRecording(element, locator, strict) {
+    if (!element || !locator) return false;
+    var tag = String(locator.tag || "");
+    if (tag && element.tagName.toLowerCase() !== tag.toLowerCase()) return false;
+    if (!strict || typeof locator.text !== "string" || !locator.text) return true;
+    var current = safeText(element);
+    if (!current) return false;
+    return current.indexOf(locator.text) === 0 ||
+      locator.text.indexOf(current) === 0;
+  }
+
   function resolveElement(locator) {
+    if (!matchesRoute(locator)) return null;
     var selectors = locator && Array.isArray(locator.selectors) ?
       locator.selectors : [];
     for (var i = 0; i < selectors.length; i++) {
       try {
-        var element = document.querySelector(selectors[i]);
-        if (element) return element;
+        var found = document.querySelectorAll(selectors[i]);
+        // A selector matching several elements is ambiguous no matter how
+        // stable it looks -- `input[name="x"]` is a radio group by design --
+        // so verify text before accepting any of them.
+        var strict = found.length > 1 || !isStable(selectors[i]);
+        for (var j = 0; j < found.length; j++) {
+          if (matchesRecording(found[j], locator, strict)) return found[j];
+        }
       } catch (e) {}
     }
     return null;

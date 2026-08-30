@@ -33,6 +33,7 @@
     var reports = {};
     var focusedId = null;
     var hmrClearTimer = null;
+    var showAllWorkers = false;
     var hmr = { status: "", message: "" };
 
     function reportValues() {
@@ -91,13 +92,24 @@
         report.worker.label : "Clay worker";
     }
 
+    function isVisible(report) {
+      if (!report || !report.reportId) return false;
+      if (report.reportId === focusedId) return true;
+      if (!showAllWorkers) return false;
+      return report.status === "working" || report.status === "needs_input";
+    }
+
+    function setShowAllWorkers(value) {
+      showAllWorkers = value === true;
+      refreshHighlights();
+    }
+
     function refreshHighlights() {
       var visible = {};
       var values = reportValues();
       for (var i = 0; i < values.length; i++) {
         var report = values[i];
-        var active = report.status === "working" || report.status === "needs_input";
-        if (!active && report.reportId !== focusedId) continue;
+        if (!isVisible(report)) continue;
         var outline = highlightFor(report);
         visible[report.reportId] = true;
         positionHighlight(report, outline);
@@ -176,11 +188,13 @@
         focusedId: focusedId,
         counts: statusCounts,
         aggregateStatus: aggregateStatus(statusCounts),
+        showAllWorkers: showAllWorkers,
         hmr: hmr,
       };
     }
 
     function pulse(report) {
+      if (!isVisible(report)) return;
       var outline = highlightFor(report);
       positionHighlight(report, outline);
       outline.classList.remove("changed");
@@ -242,6 +256,7 @@
       refreshHighlights: refreshHighlights,
       replace: replace,
       remove: remove,
+      setShowAllWorkers: setShowAllWorkers,
       snapshot: snapshot,
       upsert: upsert,
     };
