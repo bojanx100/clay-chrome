@@ -1,7 +1,7 @@
 // Clay Chrome Extension - Background Service Worker
 // Tracks open tabs and relays commands between Clay page and browser
 // Bridges local MCP servers to Clay via Native Messaging
-importScripts("content-bridge-recovery.js",
+importScripts("content-bridge-recovery.js", "tab-groups.js",
   "live-ui-evidence.js", "live-ui-react-background.js",
   "live-ui-background.js",
   "live-ui-devtools-background.js",
@@ -16,6 +16,7 @@ importScripts("content-bridge-recovery.js",
 var clayTabIds = new Set();
 var injectedTabs = new Set();
 var allTabs = [];
+var clayTabGroups = ClayTabGroups.create(chrome);
 
 // --- MCP State ---
 var mcpNativePort = null;
@@ -302,7 +303,12 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
 
 function openTab(args, callback) {
   chrome.tabs.create({ url: args.url, active: args.active !== false }, function (tab) {
-    callback({ tabId: tab.id });
+    clayTabGroups.add(tab, function (grouping) {
+      var result = { tabId: tab.id };
+      if (grouping && grouping.ok) result.groupId = grouping.groupId;
+      else if (grouping && grouping.reason) result.groupError = grouping.reason;
+      callback(result);
+    });
   });
 }
 

@@ -5,6 +5,7 @@
   "description": "Connect your browser and local MCP servers to Clay.",
   "permissions": [
     "tabs",
+    "tabGroups",
     "activeTab",
     "debugger",
     "scripting",
