@@ -302,12 +302,16 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
 // --- Tab Management Commands ---
 
 function openTab(args, callback) {
-  chrome.tabs.create({ url: args.url, active: args.active !== false }, function (tab) {
+  chrome.tabs.create({ url: args.url, active: false }, function (tab) {
     clayTabGroups.add(tab, function (grouping) {
-      var result = { tabId: tab.id };
-      if (grouping && grouping.ok) result.groupId = grouping.groupId;
-      else if (grouping && grouping.reason) result.groupError = grouping.reason;
-      callback(result);
+      if (grouping && grouping.ok) {
+        callback({ tabId: tab.id, groupId: grouping.groupId });
+        return;
+      }
+      var reason = grouping && grouping.reason ? grouping.reason : "unknown error";
+      chrome.tabs.remove(tab.id, function () {
+        callback({ error: "Failed to group MCP browser tab: " + reason });
+      });
     });
   });
 }

@@ -123,7 +123,7 @@ test("concurrent opens serialize group creation and reuse one group", async func
     "one browser window must create and style only one Clay AI group");
 });
 
-test("tab_open returns the created tab only after grouping it", function () {
+test("tab_open stays in the background and returns only after grouping", function () {
   var source = fs.readFileSync(path.join(__dirname, "..", "background.js"), "utf8");
   var start = source.indexOf("function openTab");
   var end = source.indexOf("function closeTab", start);
@@ -141,7 +141,7 @@ test("tab_open returns the created tab only after grouping it", function () {
   };
   vm.runInNewContext(source.substring(start, end), context);
 
-  context.openTab({ url: "https://example.com", active: false }, function (value) {
+  context.openTab({ url: "https://example.com", active: true }, function (value) {
     result = value;
   });
 
@@ -150,6 +150,44 @@ test("tab_open returns the created tab only after grouping it", function () {
     ["group", { id: 47, windowId: 7 }],
   ]);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(result)), { tabId: 47, groupId: 100 });
+});
+
+test("tab_open closes a tab that cannot be grouped", function () {
+  var source = fs.readFileSync(path.join(__dirname, "..", "background.js"), "utf8");
+  var start = source.indexOf("function openTab");
+  var end = source.indexOf("function closeTab", start);
+  var calls = [];
+  var result = null;
+  var context = {
+    chrome: { tabs: {
+      create: function (options, callback) {
+        calls.push(["create", options]);
+        callback({ id: 48, windowId: 7 });
+      },
+      remove: function (tabId, callback) {
+        calls.push(["remove", tabId]);
+        callback();
+      },
+    } },
+    clayTabGroups: { add: function (tab, callback) {
+      calls.push(["group", tab]);
+      callback({ ok: false, reason: "denied" });
+    } },
+  };
+  vm.runInNewContext(source.substring(start, end), context);
+
+  context.openTab({ url: "https://example.com" }, function (value) {
+    result = value;
+  });
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(calls)), [
+    ["create", { url: "https://example.com", active: false }],
+    ["group", { id: 48, windowId: 7 }],
+    ["remove", 48],
+  ]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result)), {
+    error: "Failed to group MCP browser tab: denied",
+  });
 });
 
 test("manifest grants the tab-group permission used by the runtime", function () {
